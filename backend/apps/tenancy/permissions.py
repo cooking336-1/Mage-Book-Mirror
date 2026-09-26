@@ -47,13 +47,24 @@ class HasTenantRole(BasePermission):
     """Dynamic role-based permission validator.
 
     Requires request.tenant_role to be within the allowed_roles set.
+    Supports both class-level definition and direct parameterized instantiation in views.
     """
 
     allowed_roles: tuple[str, ...] = ()
 
-    def __init__(self, *roles: str) -> None:
-        if roles:
-            self.allowed_roles = roles
+    def __init__(self, *roles: Any) -> None:
+        flat_roles: list[str] = []
+        for r in roles:
+            if isinstance(r, (list, tuple, set)):
+                flat_roles.extend(r)
+            elif isinstance(r, str):
+                flat_roles.append(r)
+        if flat_roles:
+            self.allowed_roles = tuple(flat_roles)
+
+    def __call__(self) -> "HasTenantRole":
+        """Allows instantiated permission instances in view permission_classes lists."""
+        return self
 
     def has_permission(self, request: Any, view: Any) -> bool:
         role = getattr(request, "tenant_role", None)
@@ -67,6 +78,27 @@ class HasTenantRole(BasePermission):
             raise PermissionDenied(
                 f"Your role '{role}' is not authorized to perform this operation."
             )
+        return True
+
+
+class CanExportPBC(BasePermission):
+    """Statutory PBC audit package export permission.
+
+    Permitted for Owner, Admin, and External Auditor.
+    Strictly forbidden for Bookkeeper.
+    """
+
+    allowed_roles = (RoleChoices.OWNER, RoleChoices.ADMIN, RoleChoices.AUDITOR)
+
+    def has_permission(self, request: Any, view: Any) -> bool:
+        role = getattr(request, "tenant_role", None)
+        membership = getattr(request, "membership", None)
+
+        if role == RoleChoices.AUDITOR and membership and membership.is_expired():
+            raise PermissionDenied("Auditor access has expired for this organization.")
+
+        if role not in self.allowed_roles:
+            raise PermissionDenied("Your role is not authorized to export audit packages.")
         return True
 
 
