@@ -26,7 +26,7 @@ from apps.invoicing.models import (
     InvoiceStatusChoices,
 )
 from apps.invoicing.services.pdf_compiler import AirGappedPDFCompiler
-from apps.tenancy.middleware import set_current_tenant
+from apps.tenancy.middleware import clear_current_tenant, set_current_tenant
 from apps.tenancy.models import (
     Organization,
     OrganizationMembership,
@@ -122,6 +122,10 @@ class InvoicePDFSecurityTests(TestCase):
         self._authenticate(self.user_a)
         self.client.defaults["HTTP_X_TENANT_ID"] = str(self.tenant_a.id)
         set_current_tenant(self.tenant_a, self.membership_a.role)
+
+    def tearDown(self) -> None:
+        clear_current_tenant()
+        super().tearDown()
 
     def _authenticate(self, user: CustomUser) -> None:
         """Inject Bearer JWT credentials for TenantSecurityMiddleware."""

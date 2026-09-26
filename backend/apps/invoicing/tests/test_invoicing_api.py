@@ -33,7 +33,7 @@ from apps.tax.services import (
     ACCOUNT_CODE_REVENUE_STANDARD,
     ACCOUNT_CODE_VAT_OUTPUT,
 )
-from apps.tenancy.middleware import set_current_tenant
+from apps.tenancy.middleware import clear_current_tenant, set_current_tenant
 from apps.tenancy.models import (
     Organization,
     OrganizationMembership,
@@ -88,6 +88,10 @@ class InvoicingAPITests(TestCase):
         self._authenticate(self.user)
         self.client.defaults["HTTP_X_TENANT_ID"] = str(self.org.id)
         set_current_tenant(self.org, self.membership.role)
+
+    def tearDown(self) -> None:
+        clear_current_tenant()
+        super().tearDown()
 
     def _authenticate(self, user: CustomUser) -> None:
         """Helper to inject Bearer JWT credentials for TenantSecurityMiddleware."""

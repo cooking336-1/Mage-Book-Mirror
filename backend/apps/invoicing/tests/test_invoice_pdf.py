@@ -30,7 +30,7 @@ from apps.invoicing.models import (
 )
 from apps.invoicing.services.pdf_compiler import AirGappedPDFCompiler
 from apps.invoicing.services.pdf_service import InvoicePDFService
-from apps.tenancy.middleware import set_current_tenant
+from apps.tenancy.middleware import clear_current_tenant, set_current_tenant
 from apps.tenancy.models import (
     Organization,
     OrganizationMembership,
@@ -125,6 +125,10 @@ class InvoicePDFUnitTests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         self.client.defaults["HTTP_X_TENANT_ID"] = str(self.org.id)
         set_current_tenant(self.org, self.membership.role)
+
+    def tearDown(self) -> None:
+        clear_current_tenant()
+        super().tearDown()
 
     def test_compile_invoice_pdf_layout(self) -> None:
         """AirGappedPDFCompiler generates valid binary PDF with %PDF- header."""

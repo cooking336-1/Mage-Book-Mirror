@@ -22,7 +22,7 @@ from apps.authentication.models import CustomUser
 from apps.invoicing.models import Contact, ContactTypeChoices, Invoice, InvoiceStatusChoices
 from apps.ledger.models import ChartOfAccounts
 from apps.ledger.services.seeder import seed_standard_chart_of_accounts
-from apps.tenancy.middleware import set_current_tenant
+from apps.tenancy.middleware import clear_current_tenant, set_current_tenant
 from apps.tenancy.models import (
     Organization,
     OrganizationMembership,
@@ -86,6 +86,10 @@ class InvoicingAPISecurityTests(TestCase):
         self._authenticate(self.user_a)
         self.client.defaults["HTTP_X_TENANT_ID"] = str(self.tenant_a.id)
         set_current_tenant(self.tenant_a, self.membership_a.role)
+
+    def tearDown(self) -> None:
+        clear_current_tenant()
+        super().tearDown()
 
     def _authenticate(self, user: CustomUser) -> None:
         """Helper to inject Bearer JWT credentials for TenantSecurityMiddleware."""

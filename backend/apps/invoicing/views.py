@@ -26,6 +26,7 @@ from apps.invoicing.services import InvoicingService
 from apps.invoicing.services.pdf_service import InvoicePDFService
 from apps.tenancy.middleware import get_current_tenant, get_current_tenant_role
 from apps.tenancy.models import Organization, RoleChoices
+from apps.tenancy.permissions import CanCreateInvoice, IsAuditorReadOnly
 
 
 def resolve_request_tenant(request: Request) -> Organization | None:
@@ -41,7 +42,7 @@ def resolve_request_tenant(request: Request) -> Organization | None:
 class InvoiceListCreateAPIView(APIView):
     """List tenant invoices or compile and issue a new tax invoice."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly, CanCreateInvoice]
 
     def get(self, request: Request) -> Response:
         """Retrieves tenant-scoped list of invoices with optional filtering."""
@@ -118,7 +119,7 @@ class InvoiceListCreateAPIView(APIView):
 class InvoiceDetailAPIView(APIView):
     """Retrieve complete invoice detail including line items and customer snapshot."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
 
     def get(self, request: Request, pk: Any) -> Response:
         """Retrieves single invoice instance by UUID."""
@@ -148,7 +149,7 @@ class InvoiceDetailAPIView(APIView):
 class InvoiceIssueAPIView(APIView):
     """Transitions a draft invoice to PENDING_GRA and posts balanced lines to General Ledger."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
 
     def post(self, request: Request, pk: Any) -> Response:
         """Issues an existing draft invoice."""
@@ -189,7 +190,7 @@ class InvoiceIssueAPIView(APIView):
 class InvoiceDownloadAPIView(APIView):
     """Retrieves a presigned download URL or streams raw binary PDF for an invoice."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
 
     def get(self, request: Request, pk: Any) -> Response | HttpResponse:
         """Generates 15-minute presigned download URL or streams binary PDF."""
@@ -235,7 +236,7 @@ class InvoiceDownloadAPIView(APIView):
 class InvoiceGeneratePDFAPIView(APIView):
     """Explicitly triggers compilation and upload of the invoice PDF to R2."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
 
     def post(self, request: Request, pk: Any) -> Response:
         """Compiles invoice PDF, uploads to R2, updates pdf_url, and returns download DTO."""

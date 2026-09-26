@@ -73,6 +73,35 @@ class BaseTenantModel(models.Model):
 
     objects = TenantManager()
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Enforces defense-in-depth: blocks mutations if executed under Auditor role context."""
+        from rest_framework.exceptions import PermissionDenied
+
+        from apps.tenancy.middleware import get_current_tenant_role
+        from apps.tenancy.models import RoleChoices
+
+        if get_current_tenant_role() == RoleChoices.AUDITOR:
+            # Allow internal document caching updates (e.g. pdf_url generation during GET)
+            update_fields = kwargs.get("update_fields")
+            if not (update_fields and set(update_fields).issubset({"pdf_url", "updated_at"})):
+                raise PermissionDenied(
+                    "Auditor role has strictly read-only access. ORM modifications are forbidden."
+                )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Enforces defense-in-depth: blocks deletions if executed under Auditor role context."""
+        from rest_framework.exceptions import PermissionDenied
+
+        from apps.tenancy.middleware import get_current_tenant_role
+        from apps.tenancy.models import RoleChoices
+
+        if get_current_tenant_role() == RoleChoices.AUDITOR:
+            raise PermissionDenied(
+                "Auditor role has strictly read-only access. ORM deletions are forbidden."
+            )
+        return super().delete(*args, **kwargs)
+
     class Meta:
         abstract = True
         ordering = ["-created_at"]

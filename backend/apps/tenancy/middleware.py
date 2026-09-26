@@ -69,6 +69,12 @@ class TenantSecurityMiddleware:
         "/media/",
     )
 
+    # URL prefixes exempt from Auditor mutating method restrictions (e.g. PBC package creation)
+    AUDITOR_MUTATION_EXEMPT_ROUTES = (
+        "/api/v1/audit/packages/",
+        "/api/v1/audit/pbc/",
+    )
+
     def __init__(self, get_response: Any):
         self.get_response = get_response
         self.jwt_authenticator = JWTCookieAuthentication()
@@ -154,17 +160,24 @@ class TenantSecurityMiddleware:
                     status=403,
                 )
 
-            # Enforce read-only containment (block mutating write methods)
+            # Enforce read-only containment (block mutating writes except audit export packages)
             if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-                logger.warning(
-                    "Auditor write operation blocked (Seq. Diagram 432): user=%s method=%s",
-                    request.user.id,
-                    request.method,
+                is_exempt = any(
+                    request.path.startswith(prefix)
+                    for prefix in self.AUDITOR_MUTATION_EXEMPT_ROUTES
                 )
-                return JsonResponse(
-                    {"detail": "Auditor role has strictly read-only access."},
-                    status=403,
-                )
+                if not is_exempt:
+                    logger.warning(
+                        "Auditor write operation blocked (Seq. Diagram 432): "
+                        "user=%s method=%s path=%s",
+                        request.user.id,
+                        request.method,
+                        request.path,
+                    )
+                    return JsonResponse(
+                        {"detail": "Auditor role has strictly read-only access."},
+                        status=403,
+                    )
 
         # ------------------------------------------------------------------
         # GUARD 5: PostgreSQL RLS Session Binding & Leak Defense (MUC-2.2)
