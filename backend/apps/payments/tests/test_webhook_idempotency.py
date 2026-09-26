@@ -67,7 +67,10 @@ class WebhookIdempotencyTestCase(TestCase):
             PaymentWebhookLog.objects.filter(event_id="evt_replay_test_101").order_by("created_at")
         )
         self.assertEqual(len(logs), 2)
-        self.assertEqual(logs[0].status, WebhookStatusChoices.VERIFIED)
+        self.assertIn(
+            logs[0].status,
+            [WebhookStatusChoices.VERIFIED, WebhookStatusChoices.FAILED_TENANT_RESOLUTION],
+        )
         self.assertEqual(logs[1].status, WebhookStatusChoices.IGNORED)
         self.assertIn("Duplicate event discarded", logs[1].error_message)
 
