@@ -15,6 +15,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import AuditTrail
+from apps.audit.serializers import AuditTrailSerializer
 from apps.audit.tasks import compile_pbc_package
 from apps.tenancy.middleware import get_current_tenant
 from apps.tenancy.models import Organization
@@ -147,3 +149,40 @@ class PBCAuditExportStatusAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class AuditTrailListAPIView(APIView):
+    """Collection resource: GET /api/v1/audit/trail/
+
+    Returns tenant-scoped, tamper-evident audit logs.
+    Restricted to OWNER, ADMIN, and external AUDITOR.
+    """
+
+    permission_classes = [IsAuthenticated, CanExportPBC]
+
+    def get(self, request: Request) -> Response:
+        """Retrieves paginated or filtered audit trail records for active tenant."""
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = AuditTrail.objects.filter(organization=tenant)
+
+        # Optional filters
+        action = request.query_params.get("action")
+        if action:
+            queryset = queryset.filter(action=action)
+
+        entity_type = request.query_params.get("entity_type")
+        if entity_type:
+            queryset = queryset.filter(entity_type=entity_type)
+
+        sha256 = request.query_params.get("sha256")
+        if sha256:
+            queryset = queryset.filter(sha256_hash=sha256)
+
+        serializer = AuditTrailSerializer(queryset[:100], many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
