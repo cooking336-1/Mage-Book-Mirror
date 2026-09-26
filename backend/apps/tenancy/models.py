@@ -80,6 +80,33 @@ class Organization(models.Model):
         choices=ExperienceModeChoices.choices,
         default=ExperienceModeChoices.SIMPLE,
     )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Soft-deactivation status preserving statutory records for 6-year retention.",
+    )
+    settlement_bank_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Commercial bank name for merchant revenue settlements.",
+    )
+    settlement_account_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Account number for merchant bank settlements.",
+    )
+    settlement_momo_number = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        help_text="Merchant Mobile Money wallet phone number for automated settlements.",
+    )
+    settlement_locked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when financial destination coordinates were last locked/modified.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

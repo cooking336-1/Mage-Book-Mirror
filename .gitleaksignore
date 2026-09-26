@@ -1,0 +1,4 @@
+# Gitleaks ignore list for false positives
+# Format: <commit>:<file>:<rule-id>:<line> or <fingerprint>
+
+50024c5da7079a4fa8062c94712dec0989b020c8:backend/apps/payroll/migrations/0001_initial.py:generic-api-key:324
