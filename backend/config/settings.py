@@ -72,6 +72,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.tenancy.middleware.TenantSecurityMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -191,3 +192,26 @@ CLOUDFLARE_R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", default="")
 CLOUDFLARE_R2_SECRET_ACCESS_KEY = env("R2_SECRET_ACCESS_KEY", default="")
 CLOUDFLARE_R2_BUCKET_NAME = env("R2_BUCKET_NAME", default="magebooks-prod")
 CLOUDFLARE_R2_ENDPOINT_URL = env("R2_ENDPOINT_URL", default="")
+
+# Payment Gateway & Webhook Secrets
+PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="sk_test_mock_paystack_secret_key")
+HUBTEL_CLIENT_SECRET = env("HUBTEL_CLIENT_SECRET", default="mock_hubtel_secret_key")
+MOMO_WEBHOOK_SECRET = env("MOMO_WEBHOOK_SECRET", default="mock_momo_webhook_secret_key")
+ACTIVE_PAYMENT_GATEWAY = env("ACTIVE_PAYMENT_GATEWAY", default="mock")
+
+# Redis & Distributed Idempotency Configuration
+REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+IDEMPOTENCY_LOCK_TTL = env.int("IDEMPOTENCY_LOCK_TTL", default=60)
+USE_MOCK_REDIS = env.bool("USE_MOCK_REDIS", default=IS_TESTING or DEBUG)
+
+# Celery Asynchronous Task Queue
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL)
+CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=REDIS_URL)
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=IS_TESTING)
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TIMEZONE = TIME_ZONE
+
+# Ghana Revenue Authority (GRA) E-VAT Clearance Service
+USE_MOCK_GRA = env.bool("USE_MOCK_GRA", default=IS_TESTING or DEBUG)
+GRA_EVAT_API_URL = env("GRA_EVAT_API_URL", default="https://mock-gra.gov.gh/api/v1")
+GRA_EVAT_API_KEY = env("GRA_EVAT_API_KEY", default="mock_gra_api_key_test")
