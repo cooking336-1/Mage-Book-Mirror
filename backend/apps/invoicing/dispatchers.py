@@ -20,13 +20,22 @@ def enqueue_gra_clearance(invoice_id: uuid.UUID | str) -> dict[str, Any]:
     invoice_uuid_str = str(invoice_id)
     logger.info("Enqueuing invoice %s for asynchronous GRA E-VAT clearance", invoice_uuid_str)
 
-    # In Sprint 4, this hooks into Celery:
-    # from apps.tax.tasks import clear_with_gra
-    # task = clear_with_gra.delay(invoice_uuid_str)
-    # return {"task_id": task.id, "status": "QUEUED", "invoice_id": invoice_uuid_str}
+    try:
+        from apps.tax.tasks import clear_with_gra
 
-    return {
-        "task_id": f"mock-task-{invoice_uuid_str[:8]}",
-        "status": "QUEUED",
-        "invoice_id": invoice_uuid_str,
-    }
+        task = clear_with_gra.delay(invoice_uuid_str)
+        return {
+            "task_id": str(task.id),
+            "status": "QUEUED",
+            "invoice_id": invoice_uuid_str,
+        }
+    except Exception as exc:
+        logger.error(
+            f"Failed to dispatch async GRA clearance task for invoice {invoice_uuid_str}: {exc}"
+        )
+        return {
+            "task_id": f"failed-dispatch-{invoice_uuid_str[:8]}",
+            "status": "FAILED",
+            "invoice_id": invoice_uuid_str,
+            "error": str(exc),
+        }

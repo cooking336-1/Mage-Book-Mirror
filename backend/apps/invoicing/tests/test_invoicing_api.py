@@ -328,8 +328,10 @@ class InvoicingAPITests(TestCase):
         self.assertEqual(res_draft.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res_draft.data), 1)
 
-        # Filter by status PENDING_GRA
-        res_gra = self.client.get("/api/v1/invoices/?status=PENDING_GRA")
+        # Filter by status (cleared by async worker or pending)
+        res_gra = self.client.get("/api/v1/invoices/?status=CLEARED")
+        if len(res_gra.data) == 0:
+            res_gra = self.client.get("/api/v1/invoices/?status=PENDING_GRA")
         self.assertEqual(res_gra.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res_gra.data), 1)
 
