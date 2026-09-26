@@ -224,7 +224,7 @@ class PayrollTwoFactorProfile(models.Model):
     )
     totp_secret = models.CharField(
         max_length=64,
-        help_text="Base32 encoded RFC 6238 TOTP shared secret.",
+        help_text="Base32 encoded RFC 6238 TOTP seed parameter.",
     )
     is_enabled = models.BooleanField(
         default=True,

@@ -321,7 +321,7 @@ class Migration(migrations.Migration):
                 (
                     "totp_secret",
                     models.CharField(
-                        help_text="Base32 encoded RFC 6238 TOTP shared secret.", max_length=64
+                        help_text="Base32 encoded RFC 6238 TOTP seed parameter.", max_length=64
                     ),
                 ),
                 (
