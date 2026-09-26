@@ -10,6 +10,7 @@ Implements pure RESTful resource conventions:
 import datetime
 from typing import Any
 
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -17,7 +18,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.ledger.models import ChartOfAccounts, JournalEntry, JournalLine
+from apps.audit.models import AuditTrail
+from apps.ledger.models import ChartOfAccounts, FiscalPeriod, JournalEntry, JournalLine
 from apps.ledger.selectors import (
     get_balance_sheet,
     get_profit_and_loss,
@@ -25,7 +27,7 @@ from apps.ledger.selectors import (
 )
 from apps.tenancy.middleware import get_current_tenant
 from apps.tenancy.models import Organization
-from apps.tenancy.permissions import IsAuditorReadOnly
+from apps.tenancy.permissions import CanCloseFiscalPeriod, IsAuditorReadOnly
 
 
 def resolve_request_tenant(request: Request) -> Organization | None:
@@ -342,3 +344,91 @@ class BalanceSheetReportAPIView(APIView):
             as_of_date=as_of_date,
         )
         return Response(report.to_dict(), status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# FISCAL PERIOD MANAGEMENT & PERIOD CLOSING
+# ============================================================================
+class FiscalPeriodListAPIView(APIView):
+    """Resource collection for tenant fiscal periods: GET /api/v1/ledger/fiscal-periods/"""
+
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
+
+    def get(self, request: Request) -> Response:
+        """Returns ordered list of fiscal periods for the active tenant."""
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        periods = FiscalPeriod.objects.filter(organization=tenant).order_by("start_date")
+        data = [
+            {
+                "id": str(period.id),
+                "period_name": period.period_name,
+                "start_date": period.start_date.isoformat(),
+                "end_date": period.end_date.isoformat(),
+                "is_closed": period.is_closed,
+                "closed_at": period.closed_at.isoformat() if period.closed_at else None,
+                "closed_by": str(period.closed_by.id) if period.closed_by else None,
+            }
+            for period in periods
+        ]
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class FiscalPeriodCloseAPIView(APIView):
+    """Action endpoint to officially lock and close a fiscal period:
+    POST /api/v1/ledger/fiscal-periods/<uuid:pk>/close/
+
+    Permissions: Restricted to OWNER and ACCOUNTANT. Forbidden for ADMIN, BOOKKEEPER, AUDITOR.
+    """
+
+    permission_classes = [IsAuthenticated, CanCloseFiscalPeriod]
+
+    def post(self, request: Request, pk: Any) -> Response:
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        period = get_object_or_404(FiscalPeriod, id=pk, organization=tenant)
+        if period.is_closed:
+            return Response(
+                {"detail": f"Fiscal period '{period.period_name}' is already closed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        period.close_period(user=request.user)
+
+        AuditTrail.objects.create(
+            organization=tenant,
+            user=request.user,
+            action="FISCAL_PERIOD_CLOSED",
+            entity_type="FiscalPeriod",
+            entity_id=str(period.id),
+            metadata={
+                "period_name": period.period_name,
+                "start_date": period.start_date.isoformat(),
+                "end_date": period.end_date.isoformat(),
+                "closed_at": period.closed_at.isoformat() if period.closed_at else None,
+            },
+        )
+
+        return Response(
+            {
+                "id": str(period.id),
+                "period_name": period.period_name,
+                "start_date": period.start_date.isoformat(),
+                "end_date": period.end_date.isoformat(),
+                "is_closed": period.is_closed,
+                "closed_at": period.closed_at.isoformat() if period.closed_at else None,
+                "closed_by": str(period.closed_by.id) if period.closed_by else None,
+                "detail": f"Fiscal period '{period.period_name}' locked successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
