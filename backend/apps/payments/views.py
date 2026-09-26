@@ -156,23 +156,49 @@ class BaseWebhookReceiverView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        # 7. Downstream Event Processing & Reconciliation Hook (Feature 4.3)
-        self.process_payment_event(event)
+        # 7. Downstream Event Processing & Reconciliation (Feature 4.3)
+        reconcile_result = self.process_payment_event(event, request=request)
 
-        # 8. Record Verified Audit Log
+        resolved_org = None
+        log_status = WebhookStatusChoices.VERIFIED
+        error_msg = ""
+        outcome_status = "PROCESSED"
+
+        from apps.payments.services.reconciliation import ReconciliationResult
+
+        if isinstance(reconcile_result, ReconciliationResult):
+            outcome_status = reconcile_result.status
+            if reconcile_result.payment and hasattr(reconcile_result.payment, "organization"):
+                org_candidate = reconcile_result.payment.organization
+                if (
+                    hasattr(org_candidate, "_meta")
+                    and getattr(org_candidate._meta, "model_name", "") == "organization"
+                ):
+                    resolved_org = org_candidate
+                    log_status = WebhookStatusChoices.PROCESSED
+            if reconcile_result.status == "FAILED_TENANT_RESOLUTION":
+                log_status = WebhookStatusChoices.FAILED_TENANT_RESOLUTION
+                error_msg = reconcile_result.notes or "Tenant unresolvable"
+            elif reconcile_result.status == "ERROR":
+                log_status = WebhookStatusChoices.VERIFIED
+                error_msg = reconcile_result.notes or "Reconciliation error"
+
         PaymentWebhookLog.objects.create(
             provider=gateway.provider_name,
+            organization=resolved_org,
             event_id=event.event_id,
             event_type=payload.get("event", "payment_callback"),
             signature_header=signature,
-            status=WebhookStatusChoices.VERIFIED,
+            status=log_status,
             payload=payload,
             headers=headers_snapshot,
+            error_message=error_msg,
         )
 
         logger.info(
-            f"[{gateway.provider_name}] Verified payment webhook: event_id={event.event_id}, "
-            f"ref={event.reference}, amount={event.amount} {event.currency}"
+            f"[{gateway.provider_name}] Verified and reconciled payment webhook: "
+            f"event_id={event.event_id}, ref={event.reference}, "
+            f"amount={event.amount} {event.currency}, outcome={outcome_status}"
         )
 
         return Response(
@@ -181,14 +207,35 @@ class BaseWebhookReceiverView(APIView):
                 "provider": gateway.provider_name,
                 "event_id": event.event_id,
                 "reference": event.reference,
+                "reconciliation_status": outcome_status,
             },
             status=status.HTTP_200_OK,
         )
 
-    def process_payment_event(self, event: Any) -> None:
+    def process_payment_event(
+        self,
+        event: Any,
+        request: Request | None = None,
+    ) -> Any:
         """Hook for downstream reconciliation and general ledger posting (Feature 4.3)."""
-        # In Feature 4.3, this will delegate to ReconciliationService.reconcile_payment(event)
-        pass
+        from apps.payments.services.reconciliation import ReconciliationService
+        from apps.tenancy.models import Organization
+
+        org = None
+        if request:
+            org_param = request.query_params.get("org") or request.query_params.get("tenant_id")
+            if org_param:
+                try:
+                    org = Organization.objects.filter(id=org_param).first()
+                except Exception:
+                    pass
+            if not org and "HTTP_X_TENANT_ID" in request.META:
+                try:
+                    org = Organization.objects.filter(id=request.META["HTTP_X_TENANT_ID"]).first()
+                except Exception:
+                    pass
+
+        return ReconciliationService.reconcile_payment(event, organization=org)
 
 
 class MomoWebhookView(BaseWebhookReceiverView):

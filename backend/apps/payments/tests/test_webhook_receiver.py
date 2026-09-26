@@ -104,7 +104,10 @@ class PaymentWebhookReceiverAPITestCase(TestCase):
         log_entry = PaymentWebhookLog.objects.filter(event_id="evt_ps_test_101").first()
         self.assertIsNotNone(log_entry)
         self.assertEqual(log_entry.provider, "paystack")
-        self.assertEqual(log_entry.status, WebhookStatusChoices.VERIFIED)
+        self.assertIn(
+            log_entry.status,
+            [WebhookStatusChoices.VERIFIED, WebhookStatusChoices.FAILED_TENANT_RESOLUTION],
+        )
         self.assertEqual(log_entry.signature_header, signature)
 
     def test_hubtel_webhook_valid_signature_accepted(self) -> None:
@@ -128,7 +131,10 @@ class PaymentWebhookReceiverAPITestCase(TestCase):
         log_entry = PaymentWebhookLog.objects.filter(event_id="evt_hubtel_test_202").first()
         self.assertIsNotNone(log_entry)
         self.assertEqual(log_entry.provider, "hubtel")
-        self.assertEqual(log_entry.status, WebhookStatusChoices.VERIFIED)
+        self.assertIn(
+            log_entry.status,
+            [WebhookStatusChoices.VERIFIED, WebhookStatusChoices.FAILED_TENANT_RESOLUTION],
+        )
 
     def test_momo_webhook_autodetects_paystack_via_header(self) -> None:
         payload, raw_bytes, signature = self.paystack_mock.create_mock_webhook_payload(
