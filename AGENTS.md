@@ -21,3 +21,10 @@ Whenever an agent starts a new task or feature:
 3. **Mandatory Implementation Plan & Approval Gate:**
    The implementation plan must document this future-proofing analysis (highlighting potential future breakage points and concrete architectural safeguards) and be presented in `implementation_plan.md` for explicit user approval before modifying code.
 
+## Sprint-by-Sprint Git Protocol & Task Lifecycle
+1. **Dedicated Sprint Branches:** Development is partitioned by sprint (e.g. `sprint/sprint-a-core-hardening`) off `develop`.
+2. **Local-Only Task Commits (Universal across ALL Sprints A through E):** Tasks within a sprint are executed sequentially on the sprint branch. Once verified (Stage 1 + Stage 2 tests, 0 lint warnings), the task is committed to the local git branch (`git commit -m "<type>(<scope>): Task X.Y - <desc>"`). The `<type>` prefix MUST strictly represent the nature of the task (`feat`, `fix`, `refactor`, `chore`, or `test`). Individual tasks are **NEVER pushed to upstream/remote** until the full sprint completes.
+3. **Sprint Push & PR Gate:** Only when the entire sprint is complete and full regression tests pass is the sprint branch pushed to origin for PR review into `develop`.
+4. **Mandatory PR Merge Check & Branch Cleanup:** Before starting a subsequent sprint, verify the previous sprint PR is merged, checkout `develop`, pull latest changes, and delete both local (`git branch -d`) and remote (`git push origin --delete`) sprint branches.
+
+
