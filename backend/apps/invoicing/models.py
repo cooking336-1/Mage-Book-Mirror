@@ -423,6 +423,35 @@ class Invoice(BaseTenantModel, PublicShareableMixin):
         }
 
 
+class InvoiceSequence(BaseTenantModel):
+    """Row-locked sequence tracker for strictly gapless, chronological invoice numbering."""
+
+    year = models.PositiveIntegerField(
+        db_index=True,
+        help_text="Calendar/fiscal year for this sequence partition.",
+    )
+    last_number = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Last successfully issued sequential invoice number for this organization and year."
+        ),
+    )
+
+    class Meta(BaseTenantModel.Meta):
+        db_table = "invoice_sequences"
+        verbose_name = "Invoice Sequence"
+        verbose_name_plural = "Invoice Sequences"
+        constraints = BaseTenantModel.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=["organization", "year"],
+                name="unique_org_year_invoice_sequence",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.organization.name} ({self.year}): last={self.last_number}"
+
+
 class InvoiceLine(BaseTenantModel):
     """Itemized transaction line belonging to an Invoice."""
 

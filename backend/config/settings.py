@@ -98,8 +98,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database Routing: In-Memory SQLite for Automated Tests, PostgreSQL for Dev/Prod
-if IS_TESTING:
+USE_POSTGRES_TESTS = env.bool("USE_POSTGRES_TESTS", default=False)
+
+# Database Routing: In-Memory SQLite for Automated Tests, PostgreSQL for Dev/Prod & Stage 2 CI
+if IS_TESTING and not USE_POSTGRES_TESTS:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -108,17 +110,15 @@ if IS_TESTING:
     }
     # Fast password hasher to accelerate automated test suite (<2s vs 60s+)
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
-elif DEBUG:
-    # Safe fallback for local development with DEBUG=True
+else:
     DATABASES = {
         "default": env.db(
             "DATABASE_URL",
             default="postgres://postgres:postgres@localhost:5432/magebooks_db",
         )
     }
-else:
-    # Production strictly requires DATABASE_URL to prevent silent fallback to default credentials
-    DATABASES = {"default": env.db("DATABASE_URL")}
+    if IS_TESTING:
+        PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
