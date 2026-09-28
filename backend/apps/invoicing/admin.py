@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from apps.invoicing.models import Contact, Invoice, InvoiceLine
+from apps.invoicing.models import Contact, Invoice, InvoiceLine, InvoiceSequence
 
 
 class InvoiceLineInline(admin.TabularInline):
@@ -18,6 +18,13 @@ class InvoiceLineInline(admin.TabularInline):
         "nhil_amount",
         "getfund_amount",
     ]
+
+
+@admin.register(InvoiceSequence)
+class InvoiceSequenceAdmin(admin.ModelAdmin):
+    list_display = ["organization", "year", "last_number", "updated_at"]
+    list_filter = ["year", "organization"]
+    search_fields = ["organization__name"]
 
 
 @admin.register(Contact)

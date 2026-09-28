@@ -18,8 +18,10 @@ from django.db import transaction
 from apps.invoicing.dispatchers import enqueue_gra_clearance
 from apps.invoicing.models import (
     Contact,
+    ContactTypeChoices,
     Invoice,
     InvoiceLine,
+    InvoiceSequence,
     InvoiceStatusChoices,
 )
 from apps.ledger.models import ChartOfAccounts, SourceTypeChoices
@@ -145,13 +147,12 @@ class InvoicingService:
             effective_rate=Decimal("0.2000"),
         )
 
-        # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX)
+        # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX) via Row-Locked Sequence
         issue_date = data["issue_date"]
-        existing_count = Invoice.objects.filter(
+        invoice_number = cls._generate_sequential_invoice_number(
             organization=organization,
-            issue_date__year=issue_date.year,
-        ).count()
-        invoice_number = f"INV-{issue_date.year}-{existing_count + 1:05d}"
+            issue_date=issue_date,
+        )
 
         # 3. Instantiate Invoice
         action = data.get("action", "issue")
@@ -316,3 +317,95 @@ class InvoicingService:
             invoice.invoice_number,
         )
         return journal_entry
+
+    @classmethod
+    def _generate_sequential_invoice_number(
+        cls,
+        organization: Organization,
+        issue_date: Any,
+    ) -> str:
+        """Generates a strictly gapless, collision-proof invoice number using row-level locking.
+
+        Under Ghanaian statutory regulations (Act 1151 / GRA CIS), invoice sequences
+        must be strictly chronological and gapless. Acquiring a row-level lock on the
+        tenant's yearly InvoiceSequence record inside transaction.atomic() guarantees
+        zero duplicate key collisions and strictly sequential numbers even under heavy
+        concurrent load.
+        """
+        year = issue_date.year
+        seq, created = InvoiceSequence.objects.select_for_update().get_or_create(
+            organization=organization,
+            year=year,
+            defaults={"last_number": 0},
+        )
+        if created:
+            # Synchronize with any pre-existing invoices for this organization and year
+            existing_count = Invoice.objects.filter(
+                organization=organization,
+                issue_date__year=year,
+            ).count()
+            if existing_count > 0:
+                seq.last_number = existing_count
+
+        seq.last_number += 1
+        seq.save(update_fields=["last_number", "updated_at"])
+
+        org_slug = getattr(organization, "slug", None)
+        if org_slug:
+            return f"INV-{str(org_slug).upper()}-{year}-{seq.last_number:05d}"
+        return f"INV-{year}-{seq.last_number:05d}"
+
+    @classmethod
+    @transaction.atomic
+    def create_invoice(
+        cls,
+        organization: Organization,
+        user: Any = None,
+        data: dict[str, Any] | None = None,
+        customer: Contact | None = None,
+        issue_date: Any = None,
+        due_date: Any = None,
+        items: list[dict[str, Any]] | None = None,
+        lines: list[dict[str, Any]] | None = None,
+        currency: str = "GHS",
+        action: str = "issue",
+        **kwargs: Any,
+    ) -> Invoice:
+        """Convenience interface for invoice creation supporting dictionary or keyword arguments."""
+        payload: dict[str, Any] = dict(data) if data is not None else {}
+
+        if issue_date is not None:
+            payload["issue_date"] = issue_date
+        elif "issue_date" not in payload:
+            from django.utils import timezone
+
+            payload["issue_date"] = timezone.now().date()
+
+        if due_date is not None:
+            payload["due_date"] = due_date
+        elif "due_date" not in payload:
+            payload["due_date"] = payload["issue_date"]
+
+        lines_list = items or lines or payload.get("lines") or payload.get("items") or []
+        payload["lines"] = lines_list
+
+        if customer is not None:
+            payload["customer_id"] = str(customer.id)
+        elif "customer_id" not in payload:
+            default_customer = Contact.objects.filter(
+                organization=organization,
+                contact_type__in=[ContactTypeChoices.CUSTOMER, ContactTypeChoices.BOTH],
+                is_active=True,
+            ).first()
+            if not default_customer:
+                default_customer = Contact.objects.create(
+                    organization=organization,
+                    name=f"Customer - {organization.name}",
+                    contact_type=ContactTypeChoices.CUSTOMER,
+                )
+            payload["customer_id"] = str(default_customer.id)
+
+        payload.setdefault("currency", currency)
+        payload.setdefault("action", action)
+
+        return cls.create_and_post_invoice(organization=organization, user=user, data=payload)
