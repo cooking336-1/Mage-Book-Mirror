@@ -400,7 +400,10 @@ class Invoice(BaseTenantModel, PublicShareableMixin):
         if not self.payment_reference and self.organization_id:
             from apps.invoicing.utils import generate_invoice_payment_reference
 
-            self.payment_reference = generate_invoice_payment_reference(self.organization)
+            self.payment_reference = generate_invoice_payment_reference(
+                self.organization,
+                exclude_invoice_id=self.id if self.pk else None,
+            )
 
         # Auto-freeze snapshot on initial save or when transitioning from DRAFT
         if self.customer and (not self.snapshot_frozen_at or not self.customer_name):
