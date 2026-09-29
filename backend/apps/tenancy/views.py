@@ -4,9 +4,10 @@ import logging
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -15,11 +16,15 @@ from rest_framework.views import APIView
 
 from apps.audit.models import AuditTrail
 from apps.authentication.models import CustomUser
+from apps.ledger.models import FiscalCalendar, PeriodLengthChoices
+from apps.ledger.services.seeder import generate_fiscal_periods, seed_standard_chart_of_accounts
 from apps.payroll.models import PayrollTwoFactorProfile
 from apps.payroll.services.totp_service import consume_totp_token, verify_totp_code
-from apps.tenancy.models import OrganizationMembership, RoleChoices
+from apps.tenancy.models import Organization, OrganizationMembership, RoleChoices
 from apps.tenancy.permissions import HasTenantRole, IsAuditorReadOnly
 from apps.tenancy.serializers import (
+    OrganizationCreateSerializer,
+    OrganizationDetailSerializer,
     OrganizationMembershipCreateSerializer,
     OrganizationMembershipSerializer,
     OrganizationMembershipUpdateSerializer,
@@ -515,3 +520,71 @@ class OrganizationDeactivationAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class OrganizationCreateAPIView(generics.ListCreateAPIView):
+    """Exposes POST /api/v1/tenancy/organizations/ for provisioning new tenants
+
+    with atomic Ghanaian Chart of Accounts seeding and fiscal periods,
+    and GET /api/v1/tenancy/organizations/ for listing active tenant memberships.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return OrganizationCreateSerializer
+        return OrganizationDetailSerializer
+
+    def get_queryset(self):
+        return Organization.objects.filter(
+            memberships__user=self.request.user,
+            memberships__is_active=True,
+        ).distinct()
+
+    def perform_create(self, serializer: OrganizationCreateSerializer) -> None:
+        user = self.request.user
+        validated_data = serializer.validated_data
+
+        # Fallback defaults for email / phone from user profile if blank
+        if not validated_data.get("email"):
+            serializer.validated_data["email"] = user.email
+        if not validated_data.get("phone"):
+            user_phone = getattr(user, "phone_number", "")
+            serializer.validated_data["phone"] = user_phone or "+233000000000"
+
+        period_length_str = serializer.context.get("tax_period_length", "monthly")
+        period_length = (
+            PeriodLengthChoices.QUARTERLY
+            if period_length_str == "quarterly"
+            else PeriodLengthChoices.MONTHLY
+        )
+
+        with transaction.atomic():
+            org = serializer.save()
+
+            # 1. Bind creator with OWNER role
+            OrganizationMembership.objects.create(
+                organization=org,
+                user=user,
+                role=RoleChoices.OWNER,
+                is_active=True,
+            )
+
+            # 2. Bootstrap default standard Ghanaian Chart of Accounts (>=33 accounts)
+            seed_standard_chart_of_accounts(org)
+
+            # 3. Create FiscalCalendar and generate fiscal periods
+            calendar_inst, _ = FiscalCalendar.objects.get_or_create(
+                organization=org,
+                defaults={
+                    "period_length": period_length,
+                    "fiscal_year_end_month": 12,
+                    "fiscal_year_end_day": 31,
+                },
+            )
+            generate_fiscal_periods(
+                organization=org,
+                year=timezone.now().year,
+                calendar_instance=calendar_inst,
+            )

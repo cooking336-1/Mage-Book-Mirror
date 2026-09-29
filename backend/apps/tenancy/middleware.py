@@ -64,6 +64,7 @@ class TenantSecurityMiddleware:
     # URL prefixes exempt from tenant-header validation
     EXEMPT_PATH_PREFIXES = (
         "/api/v1/auth/",
+        "/api/v1/invoicing/public/",
         "/api/v1/payments/webhooks/",
         "/admin/",
         "/health/",
@@ -104,6 +105,14 @@ class TenantSecurityMiddleware:
                     {"detail": "Authentication credentials were not provided."},
                     status=401,
                 )
+
+        # Authenticated endpoints that do not require an existing X-Tenant-ID header
+        # (e.g. creating an organization during onboarding or listing user memberships)
+        if request.path.rstrip("/") == "/api/v1/tenancy/organizations":
+            try:
+                return self.get_response(request)
+            finally:
+                clear_current_tenant()
 
         # ------------------------------------------------------------------
         # GUARD 2: Header Parsing & UUID Validation (Dual Header Support)
