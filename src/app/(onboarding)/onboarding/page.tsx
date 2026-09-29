@@ -39,7 +39,7 @@ export default function OnboardingPage() {
     company: { companyName: "", businessTin: "", ghanaCard: "", address: "", phone: "", email: "" },
     vatRegistered: null,
     experienceMode: null,
-    periodLength: "quarterly",
+    periodLength: "monthly",
     fiscalYearEnd: new Date(new Date().getFullYear(), 11, 31), // Dec 31
     coaPath: null,
     contacts: [{ id: "default", name: "", type: "Customer", contactInfo: "", tin: "" }],

@@ -51,8 +51,8 @@ export default function Step4FiscalCalendar({ period, fiscalYearEnd, onPeriodCha
     `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 
   const periods: { key: PeriodLength; label: string; desc: string; icon: string }[] = [
-    { key: "monthly", label: "Monthly", desc: "Recommended for high volume businesses.", icon: "/assets/monthly.svg" },
-    { key: "quarterly", label: "Quarterly", desc: "Standard for tax reporting cycles.", icon: "/assets/quarterly.svg" },
+    { key: "monthly", label: "Monthly", desc: "Standard statutory cadence for GRA VAT & PAYE filings.", icon: "/assets/monthly.svg" },
+    { key: "quarterly", label: "Quarterly", desc: "For quarterly accounting review cycles.", icon: "/assets/quarterly.svg" },
     { key: "annually", label: "Annually", desc: "Simplest for small, stable businesses.", icon: "/assets/annually.svg" },
   ];
 
