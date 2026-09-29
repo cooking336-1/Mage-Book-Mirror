@@ -65,6 +65,7 @@ class TenantSecurityMiddleware:
     EXEMPT_PATH_PREFIXES = (
         "/api/v1/auth/",
         "/api/v1/invoicing/public/",
+        "/api/v1/public/",
         "/api/v1/payments/webhooks/",
         "/admin/",
         "/health/",

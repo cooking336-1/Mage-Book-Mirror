@@ -214,3 +214,72 @@ class InvoiceListSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class PublicInvoiceLineSerializer(serializers.ModelSerializer):
+    """Sanitized public line item DTO with internal GL account references stripped."""
+
+    class Meta:
+        model = InvoiceLine
+        fields = [
+            "id",
+            "description",
+            "quantity",
+            "unit_price",
+            "line_total",
+            "is_taxable",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+        ]
+        read_only_fields = fields
+
+
+class PublicInvoiceSerializer(serializers.ModelSerializer):
+    """Sanitized public DTO for anonymous invoice viewing."""
+
+    business_name = serializers.CharField(source="organization.name", read_only=True)
+    business_tin = serializers.CharField(source="organization.business_tin", read_only=True)
+    business_address = serializers.CharField(source="organization.address", read_only=True)
+    business_phone = serializers.CharField(source="organization.phone", read_only=True)
+    business_email = serializers.CharField(source="organization.email", read_only=True)
+    balance_due = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    is_cleared = serializers.BooleanField(read_only=True)
+    lines = PublicInvoiceLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "invoice_number",
+            "payment_reference",
+            "share_token",
+            "issue_date",
+            "due_date",
+            "status",
+            "currency",
+            "subtotal_amount",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+            "covid_levy_amount",
+            "total_amount",
+            "paid_amount",
+            "balance_due",
+            "is_cleared",
+            "business_name",
+            "business_tin",
+            "business_address",
+            "business_phone",
+            "business_email",
+            "customer_name",
+            "customer_tin",
+            "customer_ghana_card",
+            "customer_address",
+            "gra_clearance_code",
+            "gra_qr_code",
+            "gra_cleared_at",
+            "pdf_url",
+            "lines",
+            "created_at",
+        ]
+        read_only_fields = fields

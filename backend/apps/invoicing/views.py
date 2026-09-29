@@ -11,9 +11,9 @@ from typing import Any
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.http import HttpResponse
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, generics, status, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -24,6 +24,7 @@ from apps.invoicing.serializers import (
     InvoiceCreateSerializer,
     InvoiceDetailSerializer,
     InvoiceListSerializer,
+    PublicInvoiceSerializer,
 )
 from apps.invoicing.services import InvoicingService
 from apps.invoicing.services.pdf_service import InvoicePDFService
@@ -357,3 +358,19 @@ class ContactViewSet(viewsets.ModelViewSet):
                 {"detail": "Cannot delete contact with existing associated invoices."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+class PublicInvoiceView(generics.RetrieveAPIView):
+    """Anonymous public invoice viewer.
+
+    Permits public access to an invoice using its high-entropy UUIDv4 share_token.
+    Strips internal GL account IDs, tenant ledger mappings, and auditor metadata.
+    Exempted from tenant header requirements in TenantSecurityMiddleware.
+    """
+
+    permission_classes = [AllowAny]
+    serializer_class = PublicInvoiceSerializer
+    lookup_field = "share_token"
+
+    def get_queryset(self):
+        return Invoice.objects.all().select_related("organization").prefetch_related("lines")
