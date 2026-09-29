@@ -9,15 +9,18 @@ Provides:
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models
 from django.http import HttpResponse
-from rest_framework import status
+from rest_framework import filters, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.invoicing.models import Invoice
+from apps.invoicing.models import Contact, Invoice
 from apps.invoicing.serializers import (
+    ContactSerializer,
     InvoiceCreateSerializer,
     InvoiceDetailSerializer,
     InvoiceListSerializer,
@@ -278,3 +281,79 @@ class InvoiceGeneratePDFAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class ContactViewSet(viewsets.ModelViewSet):
+    """CRUD ViewSet for tenant-scoped Contacts (Customers and Suppliers).
+
+    Endpoints:
+    - GET /api/v1/contacts/: List tenant contacts with optional ?contact_type= & ?search=
+    - POST /api/v1/contacts/: Create a new contact bound to active tenant
+    - GET /api/v1/contacts/<uuid:pk>/: Retrieve single contact
+    - PUT/PATCH /api/v1/contacts/<uuid:pk>/: Update contact details
+    - DELETE /api/v1/contacts/<uuid:pk>/: Delete contact (protected if invoices exist)
+    """
+
+    serializer_class = ContactSerializer
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "phone", "email", "tin"]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        tenant = resolve_request_tenant(self.request)
+        if not tenant:
+            return Contact.objects.none()
+        qs = Contact.objects.filter(organization=tenant)
+
+        contact_type = self.request.query_params.get("contact_type")
+        if contact_type:
+            qs = qs.filter(contact_type=contact_type.upper())
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                qs = qs.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                qs = qs.filter(is_active=False)
+
+        return qs
+
+    def perform_create(self, serializer: ContactSerializer) -> None:
+        tenant = resolve_request_tenant(self.request)
+        if not tenant:
+            raise ValidationError({"detail": "Active tenant organization context required."})
+
+        name = serializer.validated_data.get("name")
+        if name and Contact.objects.filter(organization=tenant, name__iexact=name).exists():
+            raise ValidationError(
+                {"name": ["A contact with this name already exists in this organization."]}
+            )
+
+        serializer.save(organization=tenant)
+
+    def perform_update(self, serializer: ContactSerializer) -> None:
+        tenant = resolve_request_tenant(self.request)
+        name = serializer.validated_data.get("name")
+        if name and tenant:
+            duplicate = (
+                Contact.objects.filter(organization=tenant, name__iexact=name)
+                .exclude(pk=serializer.instance.pk)
+                .exists()
+            )
+            if duplicate:
+                raise ValidationError(
+                    {"name": ["A contact with this name already exists in this organization."]}
+                )
+
+        serializer.save()
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except models.ProtectedError:
+            return Response(
+                {"detail": "Cannot delete contact with existing associated invoices."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )

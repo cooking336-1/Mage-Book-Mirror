@@ -9,9 +9,11 @@ Handles validation and serialization for:
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.invoicing.models import Contact, Invoice, InvoiceLine
+from apps.invoicing.validators import validate_ghana_card, validate_gra_tin
 from apps.tenancy.models import TaxSchemeChoices
 
 
@@ -29,11 +31,29 @@ class ContactSerializer(serializers.ModelSerializer):
             "billing_address",
             "phone",
             "email",
+            "currency",
             "is_active",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        tin = attrs.get("tin")
+        if tin:
+            try:
+                attrs["tin"] = validate_gra_tin(tin)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"tin": exc.message}) from exc
+
+        card = attrs.get("ghana_card_number")
+        if card:
+            try:
+                attrs["ghana_card_number"] = validate_ghana_card(card)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"ghana_card_number": exc.message}) from exc
+
+        return attrs
 
 
 class InvoiceLineCreateSerializer(serializers.Serializer):
