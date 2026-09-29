@@ -93,4 +93,3 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data.get("last_name", ""),
             phone_number=validated_data.get("phone_number", ""),
         )
-

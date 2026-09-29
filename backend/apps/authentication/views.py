@@ -147,9 +147,10 @@ class RefreshTokenView(APIView):
 
     def post(self, request: Request) -> Response:
         refresh_cookie_name = getattr(settings, "JWT_REFRESH_COOKIE", "refresh_token")
+        body_refresh = request.data.get("refresh") if isinstance(request.data, dict) else None
         cookie_refresh = request.COOKIES.get(refresh_cookie_name)
-        body_refresh = request.data.get("refresh")
-        raw_refresh = cookie_refresh or body_refresh
+        is_body_request = bool(body_refresh)
+        raw_refresh = body_refresh or cookie_refresh
 
         if not raw_refresh:
             return Response(
@@ -187,7 +188,7 @@ class RefreshTokenView(APIView):
         }
         # Security hardening: Only expose 'refresh' in JSON body if client sent it via JSON body.
         # If client authenticated via HttpOnly cookie, keep refresh_token strictly in cookie.
-        if new_refresh_token and body_refresh and not cookie_refresh:
+        if new_refresh_token and is_body_request:
             response_data["refresh"] = new_refresh_token
 
         response = Response(response_data, status=status.HTTP_200_OK)
