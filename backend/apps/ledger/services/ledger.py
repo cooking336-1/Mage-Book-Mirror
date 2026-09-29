@@ -204,27 +204,26 @@ class LedgerService:
                     account_ids.add(acc_obj.id)
                     account_code_map[acc_ref] = acc_obj
 
-        # 5. Deterministic DAG Lock Ordering (Architecture Manual §4.3)
-        # Sort IDs lexicographically in ascending order to prevent cyclic deadlocks
-        sorted_account_ids = sorted(account_ids, key=str)
-        locked_accounts = list(
+        # 5. Account Validation (Architecture Manual §4.3.1 Hot Account Solution)
+        # Accounts are read-only metadata records; balances are calculated dynamically
+        # from immutable journal lines. Concurrent transactions write immutable JournalLine
+        # rows without locking master accounts.
+        accounts = list(
             ChartOfAccounts.objects.filter(
                 organization=organization,
-                id__in=sorted_account_ids,
+                id__in=account_ids,
             )
-            .order_by("id")
-            .select_for_update()
         )
 
-        account_lookup: dict[uuid.UUID, ChartOfAccounts] = {acc.id: acc for acc in locked_accounts}
+        account_lookup: dict[uuid.UUID, ChartOfAccounts] = {acc.id: acc for acc in accounts}
 
-        if len(account_lookup) != len(sorted_account_ids):
+        if len(account_lookup) != len(account_ids):
             raise ValidationError(
                 "One or more accounts do not exist or belong to another organization."
             )
 
         # Validate that all referenced accounts are active
-        for acc in locked_accounts:
+        for acc in accounts:
             if not acc.is_active:
                 raise ValidationError(
                     f"Account '{acc.account_code} - {acc.account_name}' is inactive "
