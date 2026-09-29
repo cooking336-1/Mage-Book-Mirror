@@ -1143,7 +1143,7 @@ No HTTP requests are made to /api/v1/auth/login/ or /api/v1/auth/register/. Real
 
 **2\. Solution Options**
 
-\#\#\#\#\# Option A: Wire to Centralized apiClient with Cookie Support (Recommended)
+\#\#\#\#\# Option A: Wire to Centralized Axios Singleton `apiClient` with Interceptors (Approved)
 
 Connect forms to backend auth endpoints using credentials: "include":
 
@@ -1160,7 +1160,7 @@ Adopt NextAuth v5 session wrapper.
 * **Pros:** Built-in Next.js session hooks (useSession()).  
 * **Cons:** Adds unnecessary complexity since Django SimpleJWT HttpOnly cookies already handle session lifecycle cleanly.
 
-**Recommendation:** **Option A**.
+**Approved Verdict:** **Option A** (Centralized Axios singleton `src/lib/apiClient.ts` with interceptors; native `fetch` for server-side public read-only pages).
 
 **F10: Onboarding Wizard Not Wired to Backend**
 

@@ -75,9 +75,9 @@ export default function Step2VATStatus({ vatRegistered, onChange }: Props) {
       <div className="mx-8 mb-8 bg-[#f1f3ff] border border-[rgba(195,198,215,0.5)] rounded-lg p-4 flex gap-3">
         <Image src="/assets/vat-info.svg" alt="" width={20} height={20} className="shrink-0 mt-0.5" />
         <p className="text-sm text-[#434655]">
-          VAT registration is mandatory in Ghana for businesses making taxable supplies exceeding GHS 200,000
-          over 12 months. Choosing the correct status ensures your tax calculations and invoices comply with
-          GRA standards.
+          VAT registration is mandatory in Ghana for businesses making taxable supplies exceeding GHS 750,000
+          over 12 months under the Value Added Tax Act, 2025 (Act 1151). Choosing the correct status ensures
+          your tax calculations and invoices comply with GRA standards.
         </p>
       </div>
     </div>

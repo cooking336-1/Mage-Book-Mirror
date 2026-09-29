@@ -4,7 +4,13 @@ from typing import Any
 
 from rest_framework import serializers
 
-from apps.tenancy.models import Organization, OrganizationMembership, RoleChoices
+from apps.tenancy.models import (
+    ExperienceModeChoices,
+    Organization,
+    OrganizationMembership,
+    RoleChoices,
+    TaxSchemeChoices,
+)
 
 
 class OrganizationMembershipSerializer(serializers.ModelSerializer):
@@ -121,3 +127,88 @@ class OrganizationDetailSerializer(serializers.ModelSerializer):
     def get_owner_email(self, obj: Organization) -> str | None:
         owner = obj.owner
         return owner.email if owner else None
+
+
+class OrganizationCreateSerializer(serializers.ModelSerializer):
+    """Serializer for tenant organization provisioning and registration."""
+
+    # Optional aliases/fields accepted from onboarding wizard and integration tests
+    tax_identification_number = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, write_only=True
+    )
+    vat_status = serializers.CharField(
+        max_length=50, required=False, allow_blank=True, write_only=True
+    )
+    tax_period_length = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, write_only=True
+    )
+    accounting_mode = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, write_only=True
+    )
+    currency = serializers.CharField(max_length=3, required=False, default="GHS", write_only=True)
+
+    class Meta:
+        model = Organization
+        fields = [
+            "id",
+            "name",
+            "business_tin",
+            "ghana_card_number",
+            "address",
+            "phone",
+            "email",
+            "vat_registered",
+            "vat_scheme",
+            "default_experience_mode",
+            # write-only aliases
+            "tax_identification_number",
+            "vat_status",
+            "tax_period_length",
+            "accounting_mode",
+            "currency",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "business_tin": {"required": False, "allow_blank": True, "allow_null": True},
+            "ghana_card_number": {"required": False, "allow_blank": True, "allow_null": True},
+            "address": {"required": False, "allow_blank": True},
+            "phone": {"required": False, "allow_blank": True},
+            "email": {"required": False, "allow_blank": True},
+        }
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Map aliases
+        tin = attrs.pop("tax_identification_number", None)
+        if tin and not attrs.get("business_tin"):
+            attrs["business_tin"] = tin.strip().upper()
+
+        vat_status = attrs.pop("vat_status", None)
+        if vat_status:
+            status_clean = vat_status.strip().upper()
+            if "STANDARD" in status_clean:
+                attrs["vat_scheme"] = TaxSchemeChoices.STANDARD
+                attrs["vat_registered"] = True
+            elif "EXEMPT" in status_clean:
+                attrs["vat_scheme"] = TaxSchemeChoices.EXEMPT
+                attrs["vat_registered"] = False
+            elif "ZERO" in status_clean:
+                attrs["vat_scheme"] = TaxSchemeChoices.ZERO_RATED
+                attrs["vat_registered"] = True
+
+        acc_mode = attrs.pop("accounting_mode", None)
+        if acc_mode:
+            mode_clean = acc_mode.strip().lower()
+            if mode_clean in ("strict", "full", "professional"):
+                attrs["default_experience_mode"] = ExperienceModeChoices.FULL
+            else:
+                attrs["default_experience_mode"] = ExperienceModeChoices.SIMPLE
+
+        period_length = attrs.pop("tax_period_length", None)
+        if period_length:
+            self.context["tax_period_length"] = period_length.strip().lower()
+
+        attrs.pop("currency", None)
+
+        return attrs

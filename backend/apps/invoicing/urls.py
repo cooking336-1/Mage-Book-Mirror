@@ -1,18 +1,33 @@
-"""URL configuration for Invoicing domain."""
-
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
 from apps.invoicing.views import (
+    ContactViewSet,
     InvoiceDetailAPIView,
     InvoiceDownloadAPIView,
     InvoiceGeneratePDFAPIView,
     InvoiceIssueAPIView,
     InvoiceListCreateAPIView,
+    PublicInvoiceView,
 )
 
 app_name = "invoicing"
 
+router = DefaultRouter()
+router.register(r"contacts", ContactViewSet, basename="contact")
+
 urlpatterns = [
+    path("", include(router.urls)),
+    path(
+        "invoicing/public/invoices/<uuid:share_token>/",
+        PublicInvoiceView.as_view(),
+        name="public-invoice-detail",
+    ),
+    path(
+        "public/invoices/<uuid:share_token>/",
+        PublicInvoiceView.as_view(),
+        name="public-invoice-detail-alias",
+    ),
     path("invoices/", InvoiceListCreateAPIView.as_view(), name="invoice-list-create"),
     path("invoices/<uuid:pk>/", InvoiceDetailAPIView.as_view(), name="invoice-detail"),
     path("invoices/<uuid:pk>/issue/", InvoiceIssueAPIView.as_view(), name="invoice-issue"),

@@ -1325,9 +1325,10 @@ No HTTP requests are made to `/api/v1/auth/login/` or `/api/v1/auth/register/`. 
 
 #### 2. Solution Options
 
-##### Option A: Wire to Centralized `apiClient` with Cookie Support (Recommended)
-Connect forms to backend auth endpoints using `credentials: "include"`:
+##### Option A: Wire to Centralized Axios Singleton `apiClient` with Interceptors (Approved)
+Use Axios via a centralized singleton at `src/lib/apiClient.ts` configured with `baseURL: process.env.NEXT_PUBLIC_API_URL`, `withCredentials: true`, and global request/response interceptors for `X-Organization-ID`, `X-CSRFToken`, and 401 token refresh queuing:
 ```typescript
+// Client Components, Dashboard, Forms, and PWA (95% of the application):
 const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
   setIsLoading(true);
@@ -1344,7 +1345,8 @@ const handleSubmit = async (e: React.FormEvent) => {
   }
 };
 ```
-- **Pros:** Seamless integration with backend HttpOnly JWT cookies; real error messages displayed in toasts; full CSRF protection.
+*(Note: For Server-Side Public Read-Only Pages requiring edge caching, use Next.js native `fetch`)*.
+- **Pros:** Seamless integration with backend HttpOnly JWT cookies; automatic 401 token refresh queue; transparent tenant & CSRF header injection.
 - **Cons:** None.
 
 ##### Option B: Implement NextAuth.js Credentials Provider
@@ -1352,7 +1354,7 @@ Adopt NextAuth v5 session wrapper.
 - **Pros:** Built-in Next.js session hooks (`useSession()`).
 - **Cons:** Adds unnecessary complexity since Django SimpleJWT HttpOnly cookies already handle session lifecycle cleanly.
 
-**Recommendation:** **Option A**.
+**Approved Verdict:** **Option A** (Centralized Axios singleton `src/lib/apiClient.ts` with interceptors; native `fetch` for server-side public read-only pages).
 
 ---
 

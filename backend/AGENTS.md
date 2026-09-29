@@ -185,6 +185,22 @@ All financial logic must comply strictly with the **Ghana Value Added Tax Act, 2
 
 ---
 
+### Directive 9: Frontend-to-Backend Wiring Architecture (Axios Singleton vs Server Fetch)
+> [!CRITICAL]
+> **MANDATORY CLIENT WIRING DISCIPLINE:**
+> All communication between the Next.js frontend and Django REST Framework backend MUST adhere strictly to this architectural bifurcation:
+> 1. **Client Components, Dashboard, Forms, and PWA (95% of the application):**
+>    * **MUST use Axios via a centralized singleton:** `src/lib/apiClient.ts`.
+>    * **Configuration & Capabilities:**
+>      * `baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"`
+>      * `withCredentials: true` (ensuring HttpOnly JWT cookies `access_token` and `refresh_token` are automatically forwarded across CORS requests).
+>      * **Global Request Interceptors:** Automatically inject the active tenant ID header (`X-Tenant-ID` / `X-Organization-ID`) from active tenant context and CSRF token (`X-CSRFToken`) from cookies.
+>      * **Global Response Interceptors:** Intercept `401 Unauthorized` responses and implement a request queue to execute a token refresh against `/api/v1/auth/refresh/` using rotated refresh cookies, replaying queued requests transparently.
+> 2. **Server-Side Public Read-Only Pages:**
+>    * **MUST use Next.js native `fetch`:** For public guest pages (e.g. unauthenticated public invoice viewer `/invoices/public/[id]` or statutory verification landing pages) where edge caching (`next: { revalidate: ... }`) and Server Components are required.
+
+---
+
 ## 3. The 6-Step Agent Remediation Loop
 
 For every single fix, refactor, or feature task, the agent must execute this standardized six-phase lifecycle:

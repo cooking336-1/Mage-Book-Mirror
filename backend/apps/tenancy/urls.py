@@ -3,6 +3,7 @@
 from django.urls import path
 
 from apps.tenancy.views import (
+    OrganizationCreateAPIView,
     OrganizationDeactivationAPIView,
     OrganizationMemberDetailAPIView,
     OrganizationMemberListCreateAPIView,
@@ -13,6 +14,12 @@ from apps.tenancy.views import (
 app_name = "tenancy"
 
 urlpatterns = [
+    # Tenant Provisioning & Organization Listing
+    path(
+        "organizations/",
+        OrganizationCreateAPIView.as_view(),
+        name="organization-create",
+    ),
     path("context/", TenantContextTestView.as_view(), name="tenant-context"),
     # Team Member Management & Owner Immutability
     path("members/", OrganizationMemberListCreateAPIView.as_view(), name="member-list-create"),

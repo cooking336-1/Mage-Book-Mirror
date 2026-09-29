@@ -9,9 +9,11 @@ Handles validation and serialization for:
 from decimal import Decimal
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.invoicing.models import Contact, Invoice, InvoiceLine
+from apps.invoicing.validators import validate_ghana_card, validate_gra_tin
 from apps.tenancy.models import TaxSchemeChoices
 
 
@@ -29,11 +31,29 @@ class ContactSerializer(serializers.ModelSerializer):
             "billing_address",
             "phone",
             "email",
+            "currency",
             "is_active",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        tin = attrs.get("tin")
+        if tin:
+            try:
+                attrs["tin"] = validate_gra_tin(tin)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"tin": exc.message}) from exc
+
+        card = attrs.get("ghana_card_number")
+        if card:
+            try:
+                attrs["ghana_card_number"] = validate_ghana_card(card)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"ghana_card_number": exc.message}) from exc
+
+        return attrs
 
 
 class InvoiceLineCreateSerializer(serializers.Serializer):
@@ -191,6 +211,75 @@ class InvoiceListSerializer(serializers.ModelSerializer):
             "total_amount",
             "paid_amount",
             "balance_due",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PublicInvoiceLineSerializer(serializers.ModelSerializer):
+    """Sanitized public line item DTO with internal GL account references stripped."""
+
+    class Meta:
+        model = InvoiceLine
+        fields = [
+            "id",
+            "description",
+            "quantity",
+            "unit_price",
+            "line_total",
+            "is_taxable",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+        ]
+        read_only_fields = fields
+
+
+class PublicInvoiceSerializer(serializers.ModelSerializer):
+    """Sanitized public DTO for anonymous invoice viewing."""
+
+    business_name = serializers.CharField(source="organization.name", read_only=True)
+    business_tin = serializers.CharField(source="organization.business_tin", read_only=True)
+    business_address = serializers.CharField(source="organization.address", read_only=True)
+    business_phone = serializers.CharField(source="organization.phone", read_only=True)
+    business_email = serializers.CharField(source="organization.email", read_only=True)
+    balance_due = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    is_cleared = serializers.BooleanField(read_only=True)
+    lines = PublicInvoiceLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "invoice_number",
+            "payment_reference",
+            "share_token",
+            "issue_date",
+            "due_date",
+            "status",
+            "currency",
+            "subtotal_amount",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+            "covid_levy_amount",
+            "total_amount",
+            "paid_amount",
+            "balance_due",
+            "is_cleared",
+            "business_name",
+            "business_tin",
+            "business_address",
+            "business_phone",
+            "business_email",
+            "customer_name",
+            "customer_tin",
+            "customer_ghana_card",
+            "customer_address",
+            "gra_clearance_code",
+            "gra_qr_code",
+            "gra_cleared_at",
+            "pdf_url",
+            "lines",
             "created_at",
         ]
         read_only_fields = fields
