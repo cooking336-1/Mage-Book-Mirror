@@ -14,7 +14,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, connection
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
@@ -185,9 +185,8 @@ class TenantSecurityMiddleware:
         set_current_tenant(membership.organization, membership.role)
 
         try:
-            with transaction.atomic():
-                self._bind_db_session(tenant_uuid)
-                response = self.get_response(request)
+            self._bind_db_session(tenant_uuid)
+            response = self.get_response(request)
             self._apply_security_headers(response)
             return response
         except DatabaseError as e:
@@ -225,7 +224,7 @@ class TenantSecurityMiddleware:
         return None
 
     def _bind_db_session(self, tenant_id: UUID) -> None:
-        """Binds tenant_id to PostgreSQL RLS session parameter using SET LOCAL.
+        """Binds tenant_id to PostgreSQL RLS session parameter.
 
         Fails closed by raising DatabaseError if session configuration fails.
         """
@@ -233,11 +232,11 @@ class TenantSecurityMiddleware:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "SET LOCAL app.current_tenant_id = %s;",
+                        "SET app.current_tenant_id = %s;",
                         [str(tenant_id)],
                     )
             except Exception as e:
-                logger.error("Failed to execute SET LOCAL app.current_tenant_id: %s", e)
+                logger.error("Failed to execute SET app.current_tenant_id: %s", e)
                 raise DatabaseError("Failed to establish secure tenant database context.") from e
 
     def _deallocate_db_session(self) -> None:

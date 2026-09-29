@@ -85,7 +85,6 @@ class InvoicingService:
     """Core domain service for Invoice creation, tax breakdown, and General Ledger posting."""
 
     @classmethod
-    @transaction.atomic
     def create_and_post_invoice(
         cls,
         organization: Organization,
@@ -147,96 +146,99 @@ class InvoicingService:
             effective_rate=Decimal("0.2000"),
         )
 
-        # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX) via Row-Locked Sequence
-        issue_date = data["issue_date"]
-        invoice_number = cls._generate_sequential_invoice_number(
-            organization=organization,
-            issue_date=issue_date,
-        )
-
-        # 3. Instantiate Invoice
         action = data.get("action", "issue")
         currency = data.get("currency", "GHS")
+        issue_date = data["issue_date"]
 
-        invoice = Invoice(
-            organization=organization,
-            customer=customer,
-            invoice_number=invoice_number,
-            issue_date=issue_date,
-            due_date=data["due_date"],
-            currency=currency,
-            subtotal_amount=aggregate_breakdown.taxable_amount,
-            vat_amount=aggregate_breakdown.vat_amount,
-            nhil_amount=aggregate_breakdown.nhil_amount,
-            getfund_amount=aggregate_breakdown.getfund_amount,
-            covid_levy_amount=Decimal("0.0000"),
-            total_amount=aggregate_breakdown.gross_amount,
-            paid_amount=Decimal("0.0000"),
-            status=InvoiceStatusChoices.DRAFT,
-        )
-
-        # 4. Freeze customer point-in-time legal snapshot
-        invoice.freeze_customer_snapshot(force=True)
-        invoice.save()
-
-        # 5. Create InvoiceLine items
-        created_lines: list[InvoiceLine] = []
-        for idx, line in enumerate(lines_data):
-            line_breakdown = tax_summary.line_breakdowns[idx]
-            account_id = line.get("account_id")
-            line_account = None
-
-            if account_id:
-                line_account = ChartOfAccounts.objects.filter(
-                    id=account_id, organization=organization
-                ).first()
-                if not line_account:
-                    raise ValidationError(
-                        {"account_id": f"Account {account_id} not found in this organization."}
-                    )
-
-            inv_line = InvoiceLine(
+        with transaction.atomic():
+            # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX) via Row-Locked Sequence
+            invoice_number = cls._generate_sequential_invoice_number(
                 organization=organization,
-                invoice=invoice,
-                description=line["description"],
-                quantity=Decimal(str(line["quantity"])),
-                unit_price=Decimal(str(line["unit_price"])),
-                vat_rate=STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000"),
-                nhil_rate=(
-                    STATUTORY_NHIL_RATE if line_breakdown.nhil_amount > 0 else Decimal("0.0000")
-                ),
-                getfund_rate=(
-                    STATUTORY_GETFUND_RATE
-                    if line_breakdown.getfund_amount > 0
-                    else Decimal("0.0000")
-                ),
-                vat_amount=line_breakdown.vat_amount,
-                nhil_amount=line_breakdown.nhil_amount,
-                getfund_amount=line_breakdown.getfund_amount,
-                line_total=line_breakdown.gross_amount,
-                account=line_account,
+                issue_date=issue_date,
             )
-            inv_line.save()
-            created_lines.append(inv_line)
 
-        # 6. Post to General Ledger if action is 'issue'
-        if action == "issue":
-            cls._post_invoice_to_ledger(
+            # 3. Instantiate and persist Invoice inside scoped atomic block
+            invoice = Invoice(
                 organization=organization,
-                invoice=invoice,
-                tax_breakdown=aggregate_breakdown,
-                user=user,
+                customer=customer,
+                invoice_number=invoice_number,
+                issue_date=issue_date,
+                due_date=data["due_date"],
+                currency=currency,
+                subtotal_amount=aggregate_breakdown.taxable_amount,
+                vat_amount=aggregate_breakdown.vat_amount,
+                nhil_amount=aggregate_breakdown.nhil_amount,
+                getfund_amount=aggregate_breakdown.getfund_amount,
+                covid_levy_amount=Decimal("0.0000"),
+                total_amount=aggregate_breakdown.gross_amount,
+                paid_amount=Decimal("0.0000"),
+                status=InvoiceStatusChoices.DRAFT,
             )
-            invoice.status = InvoiceStatusChoices.PENDING_GRA
-            invoice.save(update_fields=["status"])
 
-            # 7. Enqueue asynchronous GRA clearance
-            enqueue_gra_clearance(invoice.id)
+            # 4. Freeze customer point-in-time legal snapshot
+            invoice.freeze_customer_snapshot(force=True)
+            invoice.save()
+
+            # 5. Create InvoiceLine items
+            created_lines: list[InvoiceLine] = []
+            for idx, line in enumerate(lines_data):
+                line_breakdown = tax_summary.line_breakdowns[idx]
+                account_id = line.get("account_id")
+                line_account = None
+
+                if account_id:
+                    line_account = ChartOfAccounts.objects.filter(
+                        id=account_id, organization=organization
+                    ).first()
+                    if not line_account:
+                        raise ValidationError(
+                            {"account_id": f"Account {account_id} not found in this organization."}
+                        )
+
+                inv_line = InvoiceLine(
+                    organization=organization,
+                    invoice=invoice,
+                    description=line["description"],
+                    quantity=Decimal(str(line["quantity"])),
+                    unit_price=Decimal(str(line["unit_price"])),
+                    vat_rate=(
+                        STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000")
+                    ),
+                    nhil_rate=(
+                        STATUTORY_NHIL_RATE if line_breakdown.nhil_amount > 0 else Decimal("0.0000")
+                    ),
+                    getfund_rate=(
+                        STATUTORY_GETFUND_RATE
+                        if line_breakdown.getfund_amount > 0
+                        else Decimal("0.0000")
+                    ),
+                    vat_amount=line_breakdown.vat_amount,
+                    nhil_amount=line_breakdown.nhil_amount,
+                    getfund_amount=line_breakdown.getfund_amount,
+                    line_total=line_breakdown.gross_amount,
+                    account=line_account,
+                )
+                inv_line.save()
+                created_lines.append(inv_line)
+
+            # 6. Post to General Ledger if action is 'issue'
+            if action == "issue":
+                cls._post_invoice_to_ledger(
+                    organization=organization,
+                    invoice=invoice,
+                    tax_breakdown=aggregate_breakdown,
+                    user=user,
+                )
+                invoice.status = InvoiceStatusChoices.PENDING_GRA
+                invoice.save(update_fields=["status"])
+
+                # 7. Enqueue asynchronous GRA clearance strictly after transaction commit
+                invoice_id = invoice.id
+                transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
 
         return invoice
 
     @classmethod
-    @transaction.atomic
     def issue_draft_invoice(
         cls,
         invoice: Invoice,
@@ -259,18 +261,20 @@ class InvoicingService:
             effective_rate=Decimal("0.2000"),
         )
 
-        cls._post_invoice_to_ledger(
-            organization=invoice.organization,
-            invoice=invoice,
-            tax_breakdown=tax_breakdown,
-            user=user,
-        )
+        with transaction.atomic():
+            cls._post_invoice_to_ledger(
+                organization=invoice.organization,
+                invoice=invoice,
+                tax_breakdown=tax_breakdown,
+                user=user,
+            )
 
-        invoice.status = InvoiceStatusChoices.PENDING_GRA
-        invoice.save(update_fields=["status"])
+            invoice.status = InvoiceStatusChoices.PENDING_GRA
+            invoice.save(update_fields=["status"])
 
-        # Enqueue asynchronous GRA clearance
-        enqueue_gra_clearance(invoice.id)
+            # Enqueue asynchronous GRA clearance strictly after transaction commit
+            invoice_id = invoice.id
+            transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
 
         return invoice
 
