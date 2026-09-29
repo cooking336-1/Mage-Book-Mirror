@@ -14,7 +14,7 @@ from typing import Any
 
 import uuid6
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.ledger.models import (
@@ -232,7 +232,8 @@ class LedgerService:
                 )
 
         # 6. Auto-generate sequential entry_number if omitted
-        if not entry_number:
+        is_auto_generated = not entry_number
+        if is_auto_generated:
             year = entry_date.year
             count = (
                 JournalEntry.objects.filter(
@@ -248,21 +249,36 @@ class LedgerService:
             ).exists():
                 entry_number = f"JE-{year}-{uuid6.uuid7().hex[:8].upper()}"
 
-        # 7. Persist JournalEntry header
+        # 7. Persist JournalEntry header (with savepoint retry for concurrency safety)
         now = timezone.now()
-        journal_entry = JournalEntry.objects.create(
-            organization=organization,
-            period=period,
-            entry_number=entry_number,
-            entry_date=entry_date,
-            narration=narration,
-            source_type=source_type,
-            source_id=source_id,
-            is_posted=True,
-            posted_at=now,
-            posted_by=user,
-            created_by=user,
-        )
+        max_retries = 3
+        journal_entry: JournalEntry | None = None
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    journal_entry = JournalEntry.objects.create(
+                        organization=organization,
+                        period=period,
+                        entry_number=entry_number,
+                        entry_date=entry_date,
+                        narration=narration,
+                        source_type=source_type,
+                        source_id=source_id,
+                        is_posted=True,
+                        posted_at=now,
+                        posted_by=user,
+                        created_by=user,
+                    )
+                break
+            except IntegrityError:
+                if is_auto_generated and attempt < max_retries - 1:
+                    year = entry_date.year
+                    entry_number = f"JE-{year}-{uuid6.uuid7().hex[:8].upper()}"
+                else:
+                    raise
+
+        if journal_entry is None:
+            raise ValidationError("Failed to allocate unique journal entry number.")
 
         # 8. Instantiate and bulk create JournalLine records
         lines_to_create: list[JournalLine] = []
