@@ -158,7 +158,6 @@ class ReconciliationService:
         return "1015"
 
     @classmethod
-    @transaction.atomic
     def reconcile_payment(
         cls,
         event: NormalizedPaymentEvent,
@@ -320,56 +319,59 @@ class ReconciliationService:
         if amount < balance_due:
             # --- Case A2: Partial Payment (MUC-1.1 Underpayment Defense) ---
             # Attacker paid fractional amount; NEVER mark PAID!
-            invoice.paid_amount = (invoice.paid_amount + amount).quantize(QUANTIZE_FOUR_PLACES)
-            invoice.status = InvoiceStatusChoices.PARTIALLY_PAID
-            invoice.save(update_fields=["paid_amount", "status", "updated_at"])
+            with transaction.atomic():
+                invoice.paid_amount = (invoice.paid_amount + amount).quantize(QUANTIZE_FOUR_PLACES)
+                invoice.status = InvoiceStatusChoices.PARTIALLY_PAID
+                invoice.save(update_fields=["paid_amount", "status", "updated_at"])
 
-            lines_data = [
-                {
-                    "account": momo_acc,
-                    "debit": amount,
-                    "description": (
-                        f"MoMo collection for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
+                lines_data = [
+                    {
+                        "account": momo_acc,
+                        "debit": amount,
+                        "description": (
+                            f"MoMo collection for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
+                        ),
+                    },
+                    {
+                        "account": "1200",  # Accounts Receivable
+                        "credit": amount,
+                        "description": f"AR partial payment for Invoice {invoice.invoice_number}",
+                    },
+                ]
+
+                payment = Payment.objects.create(
+                    organization=resolved_org,
+                    customer=invoice.customer,
+                    invoice=invoice,
+                    amount=amount,
+                    currency=currency_code,
+                    payment_method=method,
+                    transaction_type=PaymentTransactionTypeChoices.RECEIPT,
+                    status=PaymentStatusChoices.PARTIAL,
+                    reference_number=event.event_id,
+                    payment_reference=raw_ref,
+                    transaction_date=event.paid_at or timezone.now(),
+                    reconciliation_notes=(
+                        f"Partial payment received. Remaining balance: "
+                        f"GHS {invoice.balance_due:.4f}"
                     ),
-                },
-                {
-                    "account": "1200",  # Accounts Receivable
-                    "credit": amount,
-                    "description": f"AR partial payment for Invoice {invoice.invoice_number}",
-                },
-            ]
+                    raw_event=event.raw_payload,
+                )
 
-            payment = Payment.objects.create(
-                organization=resolved_org,
-                customer=invoice.customer,
-                invoice=invoice,
-                amount=amount,
-                currency=currency_code,
-                payment_method=method,
-                transaction_type=PaymentTransactionTypeChoices.RECEIPT,
-                status=PaymentStatusChoices.PARTIAL,
-                reference_number=event.event_id,
-                payment_reference=raw_ref,
-                transaction_date=event.paid_at or timezone.now(),
-                reconciliation_notes=(
-                    f"Partial payment received. Remaining balance: GHS {invoice.balance_due:.4f}"
-                ),
-                raw_event=event.raw_payload,
-            )
+                journal_entry = LedgerService.post_journal_entry(
+                    organization=resolved_org,
+                    entry_date=clearing_date,
+                    lines_data=lines_data,
+                    narration=(
+                        f"MoMo partial settlement for Invoice "
+                        f"{invoice.invoice_number} (Ref: {raw_ref})"
+                    ),
+                    source_type=SourceTypeChoices.PAYMENT,
+                    source_id=payment.id,
+                )
 
-            journal_entry = LedgerService.post_journal_entry(
-                organization=resolved_org,
-                entry_date=clearing_date,
-                lines_data=lines_data,
-                narration=(
-                    f"MoMo partial settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
-                ),
-                source_type=SourceTypeChoices.PAYMENT,
-                source_id=payment.id,
-            )
-
-            payment.journal_entry = journal_entry
-            payment.save(update_fields=["journal_entry"])
+                payment.journal_entry = journal_entry
+                payment.save(update_fields=["journal_entry"])
 
             logger.info(
                 f"[{event.provider}] Reconciled PARTIAL payment of GHS {amount} for "
@@ -386,52 +388,55 @@ class ReconciliationService:
 
         elif amount == balance_due:
             # --- Case A1: Exact Full Settlement ---
-            invoice.paid_amount = (invoice.paid_amount + amount).quantize(QUANTIZE_FOUR_PLACES)
-            invoice.status = InvoiceStatusChoices.PAID
-            invoice.save(update_fields=["paid_amount", "status", "updated_at"])
+            with transaction.atomic():
+                invoice.paid_amount = (invoice.paid_amount + amount).quantize(QUANTIZE_FOUR_PLACES)
+                invoice.status = InvoiceStatusChoices.PAID
+                invoice.save(update_fields=["paid_amount", "status", "updated_at"])
 
-            lines_data = [
-                {
-                    "account": momo_acc,
-                    "debit": amount,
-                    "description": (
+                lines_data = [
+                    {
+                        "account": momo_acc,
+                        "debit": amount,
+                        "description": (
+                            f"MoMo settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
+                        ),
+                    },
+                    {
+                        "account": "1200",  # Accounts Receivable
+                        "credit": amount,
+                        "description": f"AR clearance for Invoice {invoice.invoice_number}",
+                    },
+                ]
+
+                payment = Payment.objects.create(
+                    organization=resolved_org,
+                    customer=invoice.customer,
+                    invoice=invoice,
+                    amount=amount,
+                    currency=currency_code,
+                    payment_method=method,
+                    transaction_type=PaymentTransactionTypeChoices.RECEIPT,
+                    status=PaymentStatusChoices.SETTLED,
+                    reference_number=event.event_id,
+                    payment_reference=raw_ref,
+                    transaction_date=event.paid_at or timezone.now(),
+                    reconciliation_notes="Invoice settled in full.",
+                    raw_event=event.raw_payload,
+                )
+
+                journal_entry = LedgerService.post_journal_entry(
+                    organization=resolved_org,
+                    entry_date=clearing_date,
+                    lines_data=lines_data,
+                    narration=(
                         f"MoMo settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
                     ),
-                },
-                {
-                    "account": "1200",  # Accounts Receivable
-                    "credit": amount,
-                    "description": f"AR clearance for Invoice {invoice.invoice_number}",
-                },
-            ]
+                    source_type=SourceTypeChoices.PAYMENT,
+                    source_id=payment.id,
+                )
 
-            payment = Payment.objects.create(
-                organization=resolved_org,
-                customer=invoice.customer,
-                invoice=invoice,
-                amount=amount,
-                currency=currency_code,
-                payment_method=method,
-                transaction_type=PaymentTransactionTypeChoices.RECEIPT,
-                status=PaymentStatusChoices.SETTLED,
-                reference_number=event.event_id,
-                payment_reference=raw_ref,
-                transaction_date=event.paid_at or timezone.now(),
-                reconciliation_notes="Invoice settled in full.",
-                raw_event=event.raw_payload,
-            )
-
-            journal_entry = LedgerService.post_journal_entry(
-                organization=resolved_org,
-                entry_date=clearing_date,
-                lines_data=lines_data,
-                narration=f"MoMo settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref})",
-                source_type=SourceTypeChoices.PAYMENT,
-                source_id=payment.id,
-            )
-
-            payment.journal_entry = journal_entry
-            payment.save(update_fields=["journal_entry"])
+                payment.journal_entry = journal_entry
+                payment.save(update_fields=["journal_entry"])
 
             logger.info(
                 f"[{event.provider}] Reconciled FULL payment of GHS {amount} for "
@@ -449,66 +454,67 @@ class ReconciliationService:
         else:
             # --- Case A3: Overpayment Handling (Refinement 1) ---
             # amount > balance_due: Split credit line between AR 1200 and Suspense Account 2150
-            excess = (amount - balance_due).quantize(QUANTIZE_FOUR_PLACES)
-            invoice.paid_amount = invoice.total_amount
-            invoice.status = InvoiceStatusChoices.PAID
-            invoice.save(update_fields=["paid_amount", "status", "updated_at"])
+            with transaction.atomic():
+                excess = (amount - balance_due).quantize(QUANTIZE_FOUR_PLACES)
+                invoice.paid_amount = invoice.total_amount
+                invoice.status = InvoiceStatusChoices.PAID
+                invoice.save(update_fields=["paid_amount", "status", "updated_at"])
 
-            lines_data = [
-                {
-                    "account": momo_acc,
-                    "debit": amount,
-                    "description": (
-                        f"MoMo collection for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
+                lines_data = [
+                    {
+                        "account": momo_acc,
+                        "debit": amount,
+                        "description": (
+                            f"MoMo collection for Invoice {invoice.invoice_number} (Ref: {raw_ref})"
+                        ),
+                    },
+                    {
+                        "account": "1200",  # Accounts Receivable
+                        "credit": balance_due,
+                        "description": f"AR settlement for Invoice {invoice.invoice_number}",
+                    },
+                    {
+                        "account": "2150",  # Suspense Account
+                        "credit": excess,
+                        "description": (
+                            f"Overpayment excess for Invoice {invoice.invoice_number} to Suspense"
+                        ),
+                    },
+                ]
+
+                payment = Payment.objects.create(
+                    organization=resolved_org,
+                    customer=invoice.customer,
+                    invoice=invoice,
+                    amount=amount,
+                    currency=currency_code,
+                    payment_method=method,
+                    transaction_type=PaymentTransactionTypeChoices.RECEIPT,
+                    status=PaymentStatusChoices.SETTLED,
+                    reference_number=event.event_id,
+                    payment_reference=raw_ref,
+                    transaction_date=event.paid_at or timezone.now(),
+                    reconciliation_notes=(
+                        f"Invoice fully settled (GHS {balance_due:.4f}). "
+                        f"Excess deposit of GHS {excess:.4f} routed to Suspense Account 2150."
                     ),
-                },
-                {
-                    "account": "1200",  # Accounts Receivable
-                    "credit": balance_due,
-                    "description": f"AR settlement for Invoice {invoice.invoice_number}",
-                },
-                {
-                    "account": "2150",  # Suspense Account
-                    "credit": excess,
-                    "description": (
-                        f"Overpayment excess for Invoice {invoice.invoice_number} to Suspense"
+                    raw_event=event.raw_payload,
+                )
+
+                journal_entry = LedgerService.post_journal_entry(
+                    organization=resolved_org,
+                    entry_date=clearing_date,
+                    lines_data=lines_data,
+                    narration=(
+                        f"MoMo settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref}) - "
+                        f"Excess GHS {excess} to Suspense 2150"
                     ),
-                },
-            ]
+                    source_type=SourceTypeChoices.PAYMENT,
+                    source_id=payment.id,
+                )
 
-            payment = Payment.objects.create(
-                organization=resolved_org,
-                customer=invoice.customer,
-                invoice=invoice,
-                amount=amount,
-                currency=currency_code,
-                payment_method=method,
-                transaction_type=PaymentTransactionTypeChoices.RECEIPT,
-                status=PaymentStatusChoices.SETTLED,
-                reference_number=event.event_id,
-                payment_reference=raw_ref,
-                transaction_date=event.paid_at or timezone.now(),
-                reconciliation_notes=(
-                    f"Invoice fully settled (GHS {balance_due:.4f}). "
-                    f"Excess deposit of GHS {excess:.4f} routed to Suspense Account 2150."
-                ),
-                raw_event=event.raw_payload,
-            )
-
-            journal_entry = LedgerService.post_journal_entry(
-                organization=resolved_org,
-                entry_date=clearing_date,
-                lines_data=lines_data,
-                narration=(
-                    f"MoMo settlement for Invoice {invoice.invoice_number} (Ref: {raw_ref}) - "
-                    f"Excess GHS {excess} to Suspense 2150"
-                ),
-                source_type=SourceTypeChoices.PAYMENT,
-                source_id=payment.id,
-            )
-
-            payment.journal_entry = journal_entry
-            payment.save(update_fields=["journal_entry"])
+                payment.journal_entry = journal_entry
+                payment.save(update_fields=["journal_entry"])
 
             logger.info(
                 f"[{event.provider}] Reconciled OVERPAYMENT of GHS {amount} for "
@@ -558,34 +564,35 @@ class ReconciliationService:
             },
         ]
 
-        payment = Payment.objects.create(
-            organization=organization,
-            amount=amount,
-            currency=(event.currency or "GHS").upper().strip(),
-            payment_method=method,
-            transaction_type=PaymentTransactionTypeChoices.RECEIPT,
-            status=PaymentStatusChoices.SUSPENSE,
-            reference_number=event.event_id,
-            payment_reference=(event.reference or "").strip(),
-            transaction_date=event.paid_at or timezone.now(),
-            reconciliation_notes=reason,
-            raw_event=event.raw_payload,
-        )
+        with transaction.atomic():
+            payment = Payment.objects.create(
+                organization=organization,
+                amount=amount,
+                currency=(event.currency or "GHS").upper().strip(),
+                payment_method=method,
+                transaction_type=PaymentTransactionTypeChoices.RECEIPT,
+                status=PaymentStatusChoices.SUSPENSE,
+                reference_number=event.event_id,
+                payment_reference=(event.reference or "").strip(),
+                transaction_date=event.paid_at or timezone.now(),
+                reconciliation_notes=reason,
+                raw_event=event.raw_payload,
+            )
 
-        journal_entry = LedgerService.post_journal_entry(
-            organization=organization,
-            entry_date=clearing_date,
-            lines_data=lines_data,
-            narration=(
-                f"Unreconciled MoMo deposit (Ref: {event.reference or 'NONE'}) - "
-                "Suspense Account 2150"
-            ),
-            source_type=SourceTypeChoices.PAYMENT,
-            source_id=payment.id,
-        )
+            journal_entry = LedgerService.post_journal_entry(
+                organization=organization,
+                entry_date=clearing_date,
+                lines_data=lines_data,
+                narration=(
+                    f"Unreconciled MoMo deposit (Ref: {event.reference or 'NONE'}) - "
+                    "Suspense Account 2150"
+                ),
+                source_type=SourceTypeChoices.PAYMENT,
+                source_id=payment.id,
+            )
 
-        payment.journal_entry = journal_entry
-        payment.save(update_fields=["journal_entry"])
+            payment.journal_entry = journal_entry
+            payment.save(update_fields=["journal_entry"])
 
         logger.warning(
             f"[{event.provider}] QUARANTINED TO SUSPENSE 2150: amount=GHS {amount}, "

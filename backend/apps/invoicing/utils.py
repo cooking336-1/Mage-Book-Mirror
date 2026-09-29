@@ -8,7 +8,7 @@ Implements:
 
 import re
 from collections.abc import Sequence
-from typing import Final
+from typing import Any, Final
 
 from apps.invoicing.validators import (
     is_valid_ghana_card,
@@ -178,11 +178,17 @@ class VerhoeffValidator:
         return c == 0
 
 
-def generate_invoice_payment_reference(organization, seq_number: int | None = None) -> str:
+def generate_invoice_payment_reference(
+    organization: Any,
+    seq_number: int | None = None,
+    exclude_invoice_id: Any | None = None,
+) -> str:
     """Generates a compact, error-detecting payment reference with a Luhn check digit.
 
     Format: <numeric_seq>-<luhn_digit> (e.g. '10001-3')
     Used on physical receipts and USSD (*170#) Mobile Money deposits.
+    Actively checks for collisions against existing invoices for this tenant,
+    incrementing the sequence number until a unique reference is obtained.
     """
     from apps.invoicing.models import Invoice
 
@@ -190,4 +196,16 @@ def generate_invoice_payment_reference(organization, seq_number: int | None = No
         count = Invoice.objects.filter(organization=organization).count()
         seq_number = 10001 + count
 
-    return LuhnValidator.generate_reference(seq_number, delimiter="-")
+    ref = LuhnValidator.generate_reference(seq_number, delimiter="-")
+    query = Invoice.objects.filter(organization=organization, payment_reference=ref)
+    if exclude_invoice_id is not None:
+        query = query.exclude(id=exclude_invoice_id)
+
+    while query.exists():
+        seq_number += 1
+        ref = LuhnValidator.generate_reference(seq_number, delimiter="-")
+        query = Invoice.objects.filter(organization=organization, payment_reference=ref)
+        if exclude_invoice_id is not None:
+            query = query.exclude(id=exclude_invoice_id)
+
+    return ref

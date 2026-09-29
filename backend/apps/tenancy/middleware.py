@@ -14,8 +14,10 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-from django.db import DatabaseError, connection, transaction
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
+from django.db import DatabaseError, connection
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 from apps.authentication.authentication import JWTCookieAuthentication
@@ -88,7 +90,13 @@ class TenantSecurityMiddleware:
 
         # Resolve user identity if not already authenticated by earlier middleware
         if not getattr(request, "user", None) or not request.user.is_authenticated:
-            auth_user = self._resolve_jwt_user(request)
+            try:
+                auth_user = self._resolve_jwt_user(request)
+            except (DjangoPermissionDenied, DRFPermissionDenied) as exc:
+                return JsonResponse(
+                    {"error": "Forbidden", "detail": str(exc)},
+                    status=403,
+                )
             if auth_user:
                 request.user = auth_user
             else:
@@ -185,9 +193,8 @@ class TenantSecurityMiddleware:
         set_current_tenant(membership.organization, membership.role)
 
         try:
-            with transaction.atomic():
-                self._bind_db_session(tenant_uuid)
-                response = self.get_response(request)
+            self._bind_db_session(tenant_uuid)
+            response = self.get_response(request)
             self._apply_security_headers(response)
             return response
         except DatabaseError as e:
@@ -220,12 +227,16 @@ class TenantSecurityMiddleware:
             if auth_result is not None:
                 user, _ = auth_result
                 return user
-        except (InvalidToken, TokenError, Exception):
+        except (DjangoPermissionDenied, DRFPermissionDenied):
+            raise
+        except (InvalidToken, TokenError):
             pass
+        except Exception as e:
+            logger.warning("Unexpected error during JWT authentication resolution: %s", e)
         return None
 
     def _bind_db_session(self, tenant_id: UUID) -> None:
-        """Binds tenant_id to PostgreSQL RLS session parameter using SET LOCAL.
+        """Binds tenant_id to PostgreSQL RLS session parameter.
 
         Fails closed by raising DatabaseError if session configuration fails.
         """
@@ -233,11 +244,11 @@ class TenantSecurityMiddleware:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "SET LOCAL app.current_tenant_id = %s;",
+                        "SET app.current_tenant_id = %s;",
                         [str(tenant_id)],
                     )
             except Exception as e:
-                logger.error("Failed to execute SET LOCAL app.current_tenant_id: %s", e)
+                logger.error("Failed to execute SET app.current_tenant_id: %s", e)
                 raise DatabaseError("Failed to establish secure tenant database context.") from e
 
     def _deallocate_db_session(self) -> None:
@@ -253,3 +264,12 @@ class TenantSecurityMiddleware:
         """Applies baseline HTTP security headers (Seq. Diagram Step 18)."""
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
+
+    def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        """Standardizes unhandled PermissionDenied exceptions to return JSON HTTP 403 responses."""
+        if isinstance(exception, (DjangoPermissionDenied, DRFPermissionDenied)):
+            return JsonResponse(
+                {"error": "Forbidden", "detail": str(exception)},
+                status=403,
+            )
+        return None

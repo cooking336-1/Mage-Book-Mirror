@@ -73,33 +73,69 @@ Whenever an agent encounters multiple options or trade-offs for an item:
 
 ---
 
-### Directive 4: Human-in-the-Loop Inspection & Push Gate (No Auto-Push)
+### Directive 4: Sprint-by-Sprint Branching, Local Commits & Human Push Gate
 > [!CAUTION]
 > **AUTONOMOUS AGENTS ARE STRICTLY PROHIBITED FROM PUSHING CODE TO REMOTE REPOSITORIES (`git push`).**
+> **INDIVIDUAL TASKS MUST BE COMMITTED LOCALLY ONLY — NEVER PUSHED TO UPSTREAM UNTIL THE ENTIRE SPRINT IS COMPLETE.**
 
-The user reserves sole authority over git remote pushes and PR creation:
-1. Development proceeds strictly on dedicated feature branches: `fix/<sprint>-<task>`, `feat/<sprint>-<task>`, `refactor/...`, or `test/...`.
-2. Never commit directly to `main` or `develop`.
-3. When code implementation, linting, and all dual-stage tests are 100% passing:
-   * **Halt execution immediately.**
-   * Present the exact `git add`, `git commit -m "..."`, and `git push -u origin <branch>` commands in code blocks for the user.
-   * **Wait for explicit confirmation from the user** that the branch was inspected, pushed, and merged via PR before proceeding.
-4. **Mandatory Pre-Feature PR Merge Check & Branch Cleanup**:
-   Before creating a branch for the next task:
-   * Confirm the previous feature's PR has been merged into `develop`.
-   * Switch to `develop` and pull latest changes:
-     ```bash
-     git checkout develop
-     git pull origin develop
-     ```
-   * Delete the local merged branch:
-     ```bash
-     git branch -d <branch-name>
-     ```
-   * Delete the remote merged branch:
-     ```bash
-     git push origin --delete <branch-name>
-     ```
+The user reserves sole authority over git remote pushes and PR creation. Development proceeds strictly under this sprint-level lifecycle:
+
+1. **Sprint-by-Sprint Branching Model**:
+   * Instead of churning individual branches per task, development proceeds on a single dedicated **Sprint Branch** off `develop`:
+     * Sprint A: `sprint/sprint-a-core-hardening`
+     * Sprint B: `sprint/sprint-b-payroll-tax`
+     * Sprint C: `sprint/sprint-c-security-testing`
+     * Sprint D: `sprint/sprint-d-scalability-pwa`
+     * Sprint E: `sprint/sprint-e-compliance-launch`
+   * Never commit directly to `main` or `develop`.
+
+2. **Sequential Task Execution & Local-Only Git Commits**:
+   * When a sprint starts, create the designated sprint branch off latest `develop`.
+   * Execute tasks within that sprint (e.g. Task A.1, Task A.2, Task A.3...) sequentially one by one on that **same sprint branch**.
+   * When a task's code, schema migration checks, and dual-stage tests pass with 0 linter warnings:
+     * Stage and commit the task changes to the **local git branch only**:
+       ```bash
+       git add <task-files>
+       git commit -m "<type>(<scope>): Task X.Y - <concise descriptive message>"
+       ```
+     * **Universal Commit Type Discipline (Applies Across ALL Sprints A through E)**:
+       This commit convention is **mandatory across every single task in all sprints (Sprint A, B, C, D, E)** without exception. The `<type>` prefix MUST strictly represent the functional nature of the work:
+       * `feat`: New business capabilities, schema/model additions, or API endpoints (e.g., `feat(invoicing): Task A.1 - dedicated InvoiceSequence table`, `feat(tenancy): Task B.1 - organization creation endpoint`, `feat(pwa): Task D.1 - encrypted IndexedDB offline draft queue`).
+       * `fix`: Bug fixes, race conditions, edge-case failures, or error handling (e.g., `fix(payments): Task A.2 - active Luhn collision detection`, `fix(auth): Task A.6 - JWT cookie token rotation`).
+       * `refactor`: Architectural refactoring, eliminating locks/bottlenecks, or code decomposition without altering external behavior (e.g., `refactor(ledger): Task A.4 - eliminate COA row lock`, `refactor(services): Task D.5 - decompose monolithic orchestrators`).
+       * `chore`: Configuration adjustments, statutory constants, or dependency housekeeping (e.g., `chore(tax): Task B.6 - update statutory threshold to GHS 750,000`, `chore(ci): Task D.7 - configure GitHub Actions dual-stage gate`).
+       * `test`: Dedicated test harnesses, multi-threaded stress suites, or boundary value analysis suites (e.g., `test(concurrency): Task A.8 - 20-thread concurrency harness`, `test(tax): Task C.11 - statutory BVA test suites`).
+     * **CRITICAL RESTRICTION**: **DO NOT PUSH TO UPSTREAM/REMOTE (`git push origin ...`) AFTER EACH TASK.** Commits accumulate locally on the active sprint branch.
+     * The agent immediately proceeds to the next task under the sprint on the same sprint branch.
+
+3. **Sprint Completion & Upstream PR Push Gate**:
+   * When all tasks in the sprint are finished:
+     * Run the complete sprint regression suite across both Stage 1 (SQLite) and Stage 2 (PostgreSQL).
+     * Halt execution and present the final push command for the user to push the sprint branch to remote:
+       ```bash
+       git push -u origin sprint/<sprint-name>
+       ```
+     * The user opens a PR to merge `sprint/<sprint-name>` into `develop`.
+
+4. **Mandatory Sprint PR Merge Check & Branch Cleanup Gate (Before Next Sprint)**:
+   * Before creating the branch for the next sprint, the agent **MUST explicitly verify** that the previous sprint's PR has been merged into `develop`:
+     * Fetch upstream and verify the merge commit on `develop` (`git fetch origin`, inspect `git log origin/develop`).
+     * Check out `develop` and pull latest changes:
+       ```bash
+       git checkout develop
+       git pull origin develop
+       ```
+     * **DELETE BOTH LOCAL AND REMOTE BRANCHES OF THE COMPLETED SPRINT**:
+       ```bash
+       # Delete local sprint branch
+       git branch -d sprint/<previous-sprint-name>
+       # Delete remote sprint branch
+       git push origin --delete sprint/<previous-sprint-name>
+       ```
+     * Only after confirming deletion of both local and remote branches of the merged sprint, create the new sprint branch for the next sprint off fresh `develop`:
+       ```bash
+       git checkout -b sprint/<next-sprint-name>
+       ```
 
 ---
 
@@ -157,12 +193,15 @@ For every single fix, refactor, or feature task, the agent must execute this sta
 flowchart TD
     A[Step 1: Document Investigation & Problem Depth Discovery] --> B[Step 2: Cross-Reference & Option Arbitration]
     B --> C[Step 3: Implementation Plan & Human Approval Gate]
-    C --> D[Step 4: Branch Creation & Test-Driven Code Execution]
+    C --> D[Step 4: Test-Driven Code Execution on Sprint Branch]
     D --> E{Schema Changes?}
     E -- Yes --> F[Step 5: SQL Migration Inspection Gate]
-    E -- No --> G[Step 6: Dual-Stage Testing & User Push Handoff]
+    E -- No --> G[Step 6: Dual-Stage Testing & Local Git Commit]
     F --> G
-    G --> H[Pause & Await User Push & PR Merge]
+    G --> H{More Tasks in Sprint?}
+    H -- Yes --> A
+    H -- No --> I[Sprint Full Regression Suite & Push PR Hand-off]
+    I --> J[PR Merged -> Delete Local & Remote Branches -> Next Sprint]
 ```
 
 ### Step 1: Document Investigation & Problem Depth Discovery
@@ -186,15 +225,8 @@ flowchart TD
   * Step-by-step code and test modifications.
 * Present the plan to the user and obtain explicit approval before editing code.
 
-### Step 4: Branch Creation & Test-Driven Code Execution
-* Verify a clean working tree: `git status`.
-* Create a dedicated task branch off `develop`:
-  ```bash
-  git checkout develop
-  git pull origin develop
-  git checkout -b <type>/<sprint>-<task-name>
-  ```
-  *(Types: `fix/`, `feat/`, `refactor/`, `test/`)*
+### Step 4: Sprint Branch Execution & Test-Driven Code
+* Development operates on the designated sprint branch (e.g., `sprint/sprint-a-core-hardening`).
 * Write automated API integration tests first (`APIClient`) to capture the bug or missing feature.
 * Implement minimal, robust code adhering strictly to KISS, DRY, and Ghanaian statutory invariants.
 
@@ -207,7 +239,7 @@ flowchart TD
 * Display the raw SQL output to the user.
 * Request user authorization before running `migrate` on PostgreSQL.
 
-### Step 6: Dual-Stage Testing, Linting & User Push Hand-off
+### Step 6: Dual-Stage Testing, Linting & Local Git Commit (No Upstream Push)
 * Run fast formatting and linting checks:
   ```bash
   uv run ruff check .
@@ -222,14 +254,40 @@ flowchart TD
   USE_POSTGRES_TESTS=1 uv run python manage.py test tests.stress.test_concurrency_stress
   ```
 * Ensure 100% test pass rate with zero warnings.
-* **Halt and present git commands to the user**:
+* **Stage and commit changes to the local git branch only**:
   ```bash
   git status
   git add <modified_files>
-  git commit -m "<type>(<scope>): <concise descriptive message>"
-  git push -u origin <branch-name>
+  git commit -m "<type>(<scope>): Task X.Y - <concise descriptive message>"
   ```
-* Wait for the user to push and merge the PR before starting the next task.
+  *(Applies across all Sprints A through E: ensure `<type>` strictly reflects the task category: `feat`, `fix`, `refactor`, `chore`, or `test`)*
+* **DO NOT PUSH TO UPSTREAM/REMOTE (`git push origin ...`) AFTER INDIVIDUAL TASKS.**
+* If more tasks remain in the sprint, proceed immediately to the next task on the same sprint branch.
+
+### Step 7: Sprint Conclusion, Upstream Push & Post-Merge Cleanup Gate
+* Once all tasks in the sprint are complete and verified:
+  1. Run the full sprint regression test suite.
+  2. Present the git push command for the user to push the sprint branch to remote:
+     ```bash
+     git push -u origin sprint/<sprint-name>
+     ```
+  3. The user opens and merges the PR into `develop`.
+  4. **Before starting the next sprint**:
+     * Verify that the previous sprint's PR has been merged into `develop` (`git fetch origin`, inspect `git log origin/develop`).
+     * Checkout `develop` and pull latest changes:
+       ```bash
+       git checkout develop
+       git pull origin develop
+       ```
+     * **Delete both local and remote branches of the merged sprint**:
+       ```bash
+       git branch -d sprint/<previous-sprint-name>
+       git push origin --delete sprint/<previous-sprint-name>
+       ```
+     * Create the next sprint branch off fresh `develop`:
+       ```bash
+       git checkout -b sprint/<next-sprint-name>
+       ```
 
 ---
 

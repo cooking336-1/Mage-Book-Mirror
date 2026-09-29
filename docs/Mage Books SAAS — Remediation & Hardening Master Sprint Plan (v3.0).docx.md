@@ -61,14 +61,38 @@ If the task introduces or mutates database models (e.g. InvoiceSequence, CreditN
 | uv run python manage.py makemigrations \<app\_name\>uv run python manage.py sqlmigrate \<app\_name\> \<migration\_number\>\# \[PAUSE\]: Output SQL and prompt user for confirmation before running 'migrate'. |
 | :---- |
 
-**Phase D: Hand-off, Review & User Push Gate**
+**Phase D: Task-Level Local Commits & Sprint-by-Sprint Git Protocol**
 
-Once tests pass, the agent halts and presents the exact git command sequence to the user. The user reviews the git diff and pushes the branch to GitHub:
+Development operates on dedicated **Sprint Branches** (e.g. `sprint/sprint-a-core-hardening`) off `develop`. Tasks within a sprint are executed sequentially on the same sprint branch:
 
-| git statusgit add .git commit \-m "\<type\>(\<scope\>): \<clear descriptive action\>"git push \-u origin \<type\>/\<sprint\>-\<task-name\> |
-| :---- |
+1. **Local-Only Task Commits**:
+   Once a task's implementation, linting, and Stage 1 & Stage 2 tests pass, the changes are committed to the **local git branch only**:
+   ```bash
+   git status
+   git add <modified_task_files>
+   git commit -m "<type>(<scope>): Task X.Y - <clear descriptive action>"
+   ```
+   *Note: The `<type>` prefix MUST strictly represent the nature of the task (`feat`, `fix`, `refactor`, `chore`, or `test`). Do NOT push to the upstream/remote repository (`git push origin ...`) after individual tasks. Commits accumulate locally on the sprint branch until the entire sprint is complete.*
 
-The agent waits for the user to confirm: 'Branch pushed, continue to next feature'. The agent then checks out develop and repeats the loop for the next numbered task.
+2. **Sprint Completion & Upstream PR Push**:
+   When all tasks in the sprint are complete and the full sprint regression suite passes:
+   ```bash
+   git push -u origin sprint/<sprint-name>
+   ```
+   The user opens a PR to merge `sprint/<sprint-name>` into `develop`.
+
+3. **Mandatory PR Merge Check & Branch Cleanup (Before Next Sprint)**:
+   Before beginning the next sprint, the agent MUST verify that the completed sprint PR is merged into `develop`:
+   ```bash
+   git checkout develop
+   git pull origin develop
+   # Delete local sprint branch
+   git branch -d sprint/<previous-sprint-name>
+   # Delete remote sprint branch
+   git push origin --delete sprint/<previous-sprint-name>
+   # Create next sprint branch
+   git checkout -b sprint/<next-sprint-name>
+   ```
 
 **4\. Master Sprint Overview & Remediation Inventory**
 
