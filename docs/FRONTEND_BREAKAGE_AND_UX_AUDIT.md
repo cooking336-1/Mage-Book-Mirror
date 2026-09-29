@@ -219,7 +219,7 @@ While the frontend has high visual polish matching the brand design system, key 
 * **Failure Mechanism**:
   All collected company details, TIN, director Ghana Card PIN, and initial contacts collected in Steps 1–6 are discarded from React state on finish, creating no organization or memberships in the backend.
 * **Remediation**:
-  Connect `handleFinish` to backend onboarding/organization creation endpoints.
+  Connect `handleFinish` to backend onboarding/organization creation endpoints via centralized Axios singleton (`src/lib/apiClient.ts`) configured with `withCredentials: true`, tenant & CSRF interceptors, and 401 token refresh queuing. (Native `fetch` reserved for server-side public read-only pages).
 
 ---
 
@@ -255,7 +255,7 @@ While the frontend has high visual polish matching the brand design system, key 
 - [ ] **P2**: Change default `periodLength` in `OnboardingPage.tsx` to `"monthly"` and update descriptive copy.
 - [ ] **P2**: Add regex formatting masks for Ghana TIN (`^[CPVGP]\d{10}$`) and Ghana Card (`^GHA-\d{9}-\d$`).
 - [ ] **P2**: Implement 15-minute idle auto-lock hook in `src/app/(dashboard)/layout.tsx`.
-- [ ] **P3**: Wire authentication forms (`/login`, `/signup`) to backend JWT cookie endpoints (`/api/v1/auth/login/`).
-- [ ] **P3**: Wire onboarding wizard submission to backend organization creation endpoint.
+- [ ] **P3**: Wire authentication forms (`/login`, `/signup`) to backend JWT cookie endpoints via Axios singleton (`src/lib/apiClient.ts`).
+- [ ] **P3**: Wire onboarding wizard submission to backend organization creation endpoint via Axios singleton (`src/lib/apiClient.ts`).
 - [ ] **P3**: Convert `TopNavBar.tsx` search `<div>` to a functional `<input>` and dynamic tenant name/profile dropdown.
 - [ ] **P3**: Replace dead `href="#"` links with valid routes.

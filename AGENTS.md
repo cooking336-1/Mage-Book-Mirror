@@ -27,4 +27,11 @@ Whenever an agent starts a new task or feature:
 3. **Sprint Push & PR Gate:** Only when the entire sprint is complete and full regression tests pass is the sprint branch pushed to origin for PR review into `develop`.
 4. **Mandatory PR Merge Check & Branch Cleanup:** Before starting a subsequent sprint, verify the previous sprint PR is merged, checkout `develop`, pull latest changes, and delete both local (`git branch -d`) and remote (`git push origin --delete`) sprint branches.
 
+## Frontend-to-Backend Wiring Architecture
+1. **Client Components, Dashboard, Forms, and PWA (95% of the application):**
+   - MUST use Axios via a centralized singleton: `src/lib/apiClient.ts`.
+   - Configure `baseURL: process.env.NEXT_PUBLIC_API_URL`, `withCredentials: true`, and global request/response interceptors for `X-Organization-ID`, `X-CSRFToken`, and 401 refresh queuing.
+2. **Server-Side Public Read-Only Pages:**
+   - MUST use Next.js native `fetch` when edge caching is required on public endpoints (e.g., public invoice viewer).
+
 

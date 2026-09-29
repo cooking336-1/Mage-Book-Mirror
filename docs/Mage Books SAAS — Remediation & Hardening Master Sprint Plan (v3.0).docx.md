@@ -309,17 +309,17 @@ Branch: fix/frontend-onboarding-monthly-cadence | File: frontend/src/components/
 
 Implementation: Change default onboarding periodLength state from 'quarterly' to 'monthly' (GRA VAT/PAYE cadence).
 
-**Task B.8 (F9): Wire Login and Registration Forms with HttpOnly Cookies**
+**Task B.8 (F9): Wire Login and Registration Forms with HttpOnly Cookies (Axios Singleton)**
 
-Branch: feat/frontend-wire-auth-forms | Files: frontend/src/app/(auth)/login/page.tsx, register/page.tsx
+Branch: feat/frontend-wire-auth-forms | Files: frontend/src/app/(auth)/login/page.tsx, register/page.tsx, src/lib/apiClient.ts
 
-Implementation: Replace mock setTimeout submit handlers with real apiClient.post('/api/v1/auth/login/') with credentials: 'include'.
+Implementation: Replace mock setTimeout submit handlers with centralized Axios singleton (`src/lib/apiClient.ts`) configured with `baseURL: process.env.NEXT_PUBLIC_API_URL`, `withCredentials: true`, and global request/response interceptors for `X-Organization-ID`, `X-CSRFToken`, and 401 token refresh queuing. (Next.js native `fetch` reserved strictly for server-side public read-only pages).
 
 **Task B.9 (F10): Wire Onboarding Wizard Submission to Registration API**
 
 Branch: feat/frontend-wire-onboarding-submission | File: frontend/src/app/onboarding/page.tsx
 
-Implementation: Wire handleFinish to submit collected business details to POST /api/v1/tenancy/organizations/.
+Implementation: Wire `handleFinish` to submit collected business details to `POST /api/v1/tenancy/organizations/` via `apiClient`.
 
 **Task B.10 (T2.1–T2.5): REST APIClient Integration & Middleware Guard Test Suites**
 
