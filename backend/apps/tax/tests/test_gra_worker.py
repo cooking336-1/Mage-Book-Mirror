@@ -266,6 +266,7 @@ class GraClearanceWorkerTestCase(TestCase):
                 "apps.invoicing.services.pdf_service.get_storage_service",
                 return_value=self.mock_storage,
             ),
+            self.captureOnCommitCallbacks(execute=True),
         ):
             inv = InvoicingService.create_and_post_invoice(
                 organization=self.org,

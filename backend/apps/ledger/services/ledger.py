@@ -246,7 +246,7 @@ class LedgerService:
             if JournalEntry.objects.filter(
                 organization=organization, entry_number=entry_number
             ).exists():
-                entry_number = f"JE-{year}-{uuid6.uuid7().hex[-12:].upper()}"
+                entry_number = f"JE-{year}-{uuid6.uuid7().hex[-8:].upper()}"
 
         # 7. Persist JournalEntry header (with savepoint retry for concurrency safety)
         now = timezone.now()
@@ -272,7 +272,7 @@ class LedgerService:
             except IntegrityError:
                 if is_auto_generated and attempt < max_retries - 1:
                     year = entry_date.year
-                    entry_number = f"JE-{year}-{uuid6.uuid7().hex[-12:].upper()}"
+                    entry_number = f"JE-{year}-{uuid6.uuid7().hex[-8:].upper()}"
                 else:
                     raise
 
