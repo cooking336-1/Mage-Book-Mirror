@@ -200,7 +200,7 @@ class OrganizationCreateSerializer(serializers.ModelSerializer):
         acc_mode = attrs.pop("accounting_mode", None)
         if acc_mode:
             mode_clean = acc_mode.strip().lower()
-            if mode_clean in ("strict", "full"):
+            if mode_clean in ("strict", "full", "professional"):
                 attrs["default_experience_mode"] = ExperienceModeChoices.FULL
             else:
                 attrs["default_experience_mode"] = ExperienceModeChoices.SIMPLE

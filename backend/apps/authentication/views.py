@@ -14,6 +14,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.authentication.serializers import (
     LoginSerializer,
+    RegisterSerializer,
     UserResponseSerializer,
     UserUpdateSerializer,
 )
@@ -67,6 +68,36 @@ def delete_jwt_cookies(response: Response) -> None:
 
     response.delete_cookie(access_cookie_name, path="/")
     response.delete_cookie(refresh_cookie_name, path="/api/v1/auth/")
+
+
+class RegisterView(APIView):
+    """Register a new user account, generate JWT cookies, and return user profile."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request: Request) -> Response:
+        serializer = RegisterSerializer(data=request.data, context={"request": request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+        access_token = str(refresh.access_token)
+        refresh_token = str(refresh)
+
+        user_data = UserResponseSerializer(user).data
+        csrf_token = get_token(request)
+        response = Response(
+            {
+                "user": user_data,
+                "csrf_token": csrf_token,
+                "detail": "Registration successful.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+        set_jwt_cookies(response, access_token=access_token, refresh_token=refresh_token)
+        return response
 
 
 class LoginView(APIView):

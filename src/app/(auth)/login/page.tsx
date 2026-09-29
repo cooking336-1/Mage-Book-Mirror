@@ -1,18 +1,69 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import Logo from "@/components/Logo";
+import apiClient, { setActiveTenantId } from "@/lib/apiClient";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: wire up auth logic
+    setErrorMessage(null);
+
+    if (!email.trim() || !password) {
+      setErrorMessage("Please enter both email/phone and password.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // 1. Fetch CSRF token cookie
+      try {
+        await apiClient.get("/api/v1/auth/csrf/");
+      } catch {
+        // Continue if csrf endpoint unavailable or pre-set
+      }
+
+      // 2. Submit credentials
+      await apiClient.post("/api/v1/auth/login/", {
+        email: email.trim(),
+        password,
+      });
+
+      // 3. Resolve tenant organization membership
+      try {
+        const orgsRes = await apiClient.get("/api/v1/tenancy/organizations/");
+        const orgs = Array.isArray(orgsRes.data)
+          ? orgsRes.data
+          : orgsRes.data.results || [];
+        if (orgs.length > 0) {
+          setActiveTenantId(orgs[0].id);
+          router.push("/dashboard");
+        } else {
+          router.push("/onboarding");
+        }
+      } catch {
+        router.push("/onboarding");
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } } };
+      const detail =
+        axiosErr.response?.data?.detail ||
+        axiosErr.response?.data?.non_field_errors?.[0] ||
+        "Unable to log in. Please check your credentials.";
+      setErrorMessage(detail);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -32,6 +83,12 @@ export default function LoginPage() {
               Enter your account details to continue to Mage Books
             </p>
           </div>
+
+          {errorMessage && (
+            <div className="mb-6 p-4 rounded-lg bg-[#fef2f2] border border-[#fecaca] text-[#dc2626] text-sm font-medium">
+              {errorMessage}
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -94,9 +151,10 @@ export default function LoginPage() {
             <div className="flex justify-center pt-2">
               <button
                 type="submit"
-                className="flex items-center gap-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-medium text-base px-10 h-12 rounded-lg shadow-md transition-colors"
+                disabled={isLoading}
+                className="flex items-center gap-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 text-white font-medium text-base px-10 h-12 rounded-lg shadow-md transition-colors"
               >
-                Login
+                {isLoading ? "Logging in..." : "Login"}
               </button>
             </div>
           </form>
