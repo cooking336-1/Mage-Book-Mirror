@@ -127,7 +127,7 @@ class CreditNoteService:
         lines_data: list[dict[str, Any]],
         reason: str,
         user: Any = None,
-        issue_date: timezone.datetime.date | None = None,
+        issue_date: datetime.date | None = None,
         ip_address: str | None = None,
         user_agent: str = "",
     ) -> tuple[CreditNote, JournalEntry]:
