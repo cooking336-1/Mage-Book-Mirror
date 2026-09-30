@@ -67,9 +67,7 @@ class DecomposedHelpersUnitTests(TestCase):
             year=2026,
             calendar_instance=self.calendar,
         )
-        self.period = FiscalPeriod.objects.filter(
-            calendar=self.calendar, is_closed=False
-        ).first()
+        self.period = FiscalPeriod.objects.filter(calendar=self.calendar, is_closed=False).first()
 
         self.maker = CustomUser.objects.create_user(
             email="maker@example.com",

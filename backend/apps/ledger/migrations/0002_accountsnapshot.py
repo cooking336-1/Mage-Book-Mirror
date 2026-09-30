@@ -8,33 +8,111 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('ledger', '0001_initial'),
-        ('tenancy', '0003_organization_business_tin_hash_and_more'),
+        ("ledger", "0001_initial"),
+        ("tenancy", "0003_organization_business_tin_hash_and_more"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='AccountSnapshot',
+            name="AccountSnapshot",
             fields=[
-                ('id', models.UUIDField(default=uuid6.uuid7, editable=False, help_text='Sequential UUIDv7 primary key for high-throughput B-Tree indexing.', primary_key=True, serialize=False)),
-                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True, help_text='Timestamp when record was created.')),
-                ('updated_at', models.DateTimeField(auto_now=True, help_text='Timestamp when record was last updated.')),
-                ('period_end', models.DateField(help_text='The ending date of the fiscal monthly period (e.g. 2026-01-31).')),
-                ('total_debits', models.DecimalField(decimal_places=4, default=Decimal('0.0000'), help_text='Cumulative debit volume as of period end.', max_digits=18)),
-                ('total_credits', models.DecimalField(decimal_places=4, default=Decimal('0.0000'), help_text='Cumulative credit volume as of period end.', max_digits=18)),
-                ('closing_balance', models.DecimalField(decimal_places=4, default=Decimal('0.0000'), help_text="Net closing balance adhering to the account's normal balance direction.", max_digits=18)),
-                ('account', models.ForeignKey(help_text='The Chart of Accounts record being summarized.', on_delete=django.db.models.deletion.CASCADE, related_name='snapshots', to='ledger.chartofaccounts')),
-                ('organization', models.ForeignKey(help_text='Tenant ownership foreign key protected against accidental deletion.', on_delete=django.db.models.deletion.PROTECT, related_name='%(app_label)s_%(class)s_set', to='tenancy.organization')),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid6.uuid7,
+                        editable=False,
+                        help_text="Sequential UUIDv7 primary key for high-throughput B-Tree indexing.",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        auto_now_add=True,
+                        db_index=True,
+                        help_text="Timestamp when record was created.",
+                    ),
+                ),
+                (
+                    "updated_at",
+                    models.DateTimeField(
+                        auto_now=True, help_text="Timestamp when record was last updated."
+                    ),
+                ),
+                (
+                    "period_end",
+                    models.DateField(
+                        help_text="The ending date of the fiscal monthly period (e.g. 2026-01-31)."
+                    ),
+                ),
+                (
+                    "total_debits",
+                    models.DecimalField(
+                        decimal_places=4,
+                        default=Decimal("0.0000"),
+                        help_text="Cumulative debit volume as of period end.",
+                        max_digits=18,
+                    ),
+                ),
+                (
+                    "total_credits",
+                    models.DecimalField(
+                        decimal_places=4,
+                        default=Decimal("0.0000"),
+                        help_text="Cumulative credit volume as of period end.",
+                        max_digits=18,
+                    ),
+                ),
+                (
+                    "closing_balance",
+                    models.DecimalField(
+                        decimal_places=4,
+                        default=Decimal("0.0000"),
+                        help_text="Net closing balance adhering to the account's normal balance direction.",
+                        max_digits=18,
+                    ),
+                ),
+                (
+                    "account",
+                    models.ForeignKey(
+                        help_text="The Chart of Accounts record being summarized.",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="snapshots",
+                        to="ledger.chartofaccounts",
+                    ),
+                ),
+                (
+                    "organization",
+                    models.ForeignKey(
+                        help_text="Tenant ownership foreign key protected against accidental deletion.",
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="%(app_label)s_%(class)s_set",
+                        to="tenancy.organization",
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Account Snapshot',
-                'verbose_name_plural': 'Account Snapshots',
-                'ordering': ['-created_at'],
-                'abstract': False,
-                'indexes': [models.Index(fields=['organization', 'account', 'period_end'], name='idx_acc_snap_org_acc_per'), models.Index(fields=['organization', 'period_end'], name='idx_acc_snap_org_per')],
-                'constraints': [models.UniqueConstraint(fields=('organization', 'account', 'period_end'), name='uq_account_snapshot_org_acc_period')],
+                "verbose_name": "Account Snapshot",
+                "verbose_name_plural": "Account Snapshots",
+                "ordering": ["-created_at"],
+                "abstract": False,
+                "indexes": [
+                    models.Index(
+                        fields=["organization", "account", "period_end"],
+                        name="idx_acc_snap_org_acc_per",
+                    ),
+                    models.Index(
+                        fields=["organization", "period_end"], name="idx_acc_snap_org_per"
+                    ),
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("organization", "account", "period_end"),
+                        name="uq_account_snapshot_org_acc_period",
+                    )
+                ],
             },
         ),
     ]

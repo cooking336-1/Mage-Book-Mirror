@@ -661,7 +661,5 @@ class AccountSnapshot(BaseTenantModel):
 
     def __str__(self) -> str:
         return (
-            f"{self.account.account_code} Snapshot as of "
-            f"{self.period_end}: {self.closing_balance}"
+            f"{self.account.account_code} Snapshot as of {self.period_end}: {self.closing_balance}"
         )
-

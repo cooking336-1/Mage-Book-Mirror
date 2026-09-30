@@ -1,4 +1,4 @@
-name: CI Checks
+name: CI Pipeline
 
 on:
   push:
@@ -7,11 +7,18 @@ on:
     branches: [ develop, main ]
 
 jobs:
-  backend-checks:
+  # =========================================================================
+  # Stage 1: Fast Static Analysis, Dependency Security & In-Memory Tests
+  # =========================================================================
+  backend-stage-1-checks:
+    name: Backend Stage 1 (Fast Static & Unit Gates)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: "ci-ephemeral-key-for-test-runner-only"
 
     steps:
       - name: Checkout Code
@@ -28,16 +35,86 @@ jobs:
       - name: Install Dependencies
         run: uv sync
 
-      - name: Run Ruff Linter & Formatter Check
-        run: |
-          uv run ruff check .
-          uv run ruff format --check .
+      - name: Run Ruff Linter Check
+        run: uv run ruff check .
 
-      - name: Run SQLite In-Memory Tests
+      - name: Run Ruff Formatter Check
+        run: uv run ruff format --check .
+
+      - name: Run Dependency Vulnerability Audit (pip-audit)
+        run: uv run pip-audit
+
+      - name: Database Migration Drift Dry-Run Gate
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Run Stage 1 Fast In-Memory Tests (SQLite)
         run: uv run python manage.py test
 
-  frontend-checks:
+  # =========================================================================
+  # Stage 2: Deep Integration, Forward/Reverse Migrations & PostgreSQL 16
+  # =========================================================================
+  backend-stage-2-postgres:
+    name: Backend Stage 2 (PostgreSQL 16 & Migration Gates)
     runs-on: ubuntu-latest
+    needs: backend-stage-1-checks
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: magebooks_test
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-cmd-interval 10s
+          --health-cmd-timeout 5s
+          --health-cmd-retries 5
+
+    env:
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: "ci-ephemeral-key-for-test-runner-only"
+      USE_POSTGRES_TESTS: "true"
+      DATABASE_URL: "postgres://postgres@localhost:5432/magebooks_test"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install Dependencies
+        run: uv sync
+
+      - name: Apply All Forward Migrations to PostgreSQL
+        run: uv run python manage.py migrate
+
+      - name: Verify Migration Reversibility Gate (Rollback & Re-apply)
+        run: |
+          uv run python manage.py migrate ledger 0001_initial
+          uv run python manage.py migrate ledger 0002_accountsnapshot
+
+      - name: Run Stage 2 Full Test Suite on PostgreSQL 16
+        run: uv run python manage.py test
+
+  # =========================================================================
+  # Frontend: TypeScript Compilation, Next.js Lint & Quality Gate
+  # =========================================================================
+  frontend-checks:
+    name: Frontend Quality & Typecheck Gate
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -55,5 +132,4 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Run ESLint Quality Check
-        run: npm run lint 
-
+        run: npm run lint
