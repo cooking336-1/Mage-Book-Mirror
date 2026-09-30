@@ -234,3 +234,26 @@ class CurrentUserView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(UserResponseSerializer(request.user).data, status=status.HTTP_200_OK)
+
+
+class VerifyPasswordView(APIView):
+    """Verifies user password to unlock idle session without losing application state."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        password = request.data.get("password")
+        if not password:
+            return Response(
+                {"password": ["Password is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.user.check_password(password):
+            return Response(
+                {"detail": "Incorrect password. Please try again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response(
+            {"detail": "Password verified successfully."},
+            status=status.HTTP_200_OK,
+        )
