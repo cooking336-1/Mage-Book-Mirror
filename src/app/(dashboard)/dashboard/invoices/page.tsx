@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useMode } from "@/contexts/ModeContext";
 
 type InvoiceItem = {
@@ -326,22 +325,6 @@ export default function InvoicesPage() {
           </table>
         </div>
       </div>
-
-      {/* ── Standard Footer ────────────────────────────────────────── */}
-      <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">
-        <p>© 2026 Mage Books. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="#" className="hover:underline">
-            Privacy Policy
-          </Link>
-          <Link href="#" className="hover:underline">
-            Terms of Service
-          </Link>
-          <Link href="#" className="hover:underline">
-            Help Center
-          </Link>
-        </div>
-      </footer>
     </div>
   );
 }

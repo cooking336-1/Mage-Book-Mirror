@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useMode } from "@/contexts/ModeContext";
 
 export default function PayrollPage() {
   const { mode } = useMode();
-  const title = mode === "simple" ? "Staff Pay" : "Payroll";
+  const title = mode === "simple" ? "Pay Staff" : "Payroll Management";
   const subtitle =
     mode === "simple"
-      ? "Manage salaries and payments to your team."
-      : "Process payroll and manage employee compensation.";
+      ? "Calculate and record staff wages and salaries."
+      : "GRA PAYE, SSNIT tier 1/2 calculations, and payroll processing.";
 
   return (
     <div className="p-8 flex flex-col gap-6 pb-0">
@@ -22,7 +21,7 @@ export default function PayrollPage() {
           type="button"
           className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-sm font-medium px-4 h-10 rounded-lg shadow-sm transition-colors"
         >
-          {mode === "simple" ? "+ Add Staff Member" : "+ Run Payroll"}
+          {mode === "simple" ? "+ Pay Staff Member" : "+ New Payroll Run"}
         </button>
       </div>
 
@@ -30,15 +29,6 @@ export default function PayrollPage() {
         <p className="font-semibold text-[#141b2b] text-lg mb-1">No payroll records</p>
         <p className="text-sm">Add staff members to start managing pay.</p>
       </div>
-
-      <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">
-        <p>© 2026 Mage Books. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="#" className="hover:underline">Privacy Policy</Link>
-          <Link href="#" className="hover:underline">Terms of Service</Link>
-          <Link href="#" className="hover:underline">Help Center</Link>
-        </div>
-      </footer>
     </div>
   );
 }
