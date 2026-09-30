@@ -28,8 +28,8 @@ from apps.invoicing.serializers import (
 )
 from apps.invoicing.services import InvoicingService
 from apps.invoicing.services.pdf_service import InvoicePDFService
-from apps.tenancy.middleware import get_current_tenant, get_current_tenant_role
-from apps.tenancy.models import Organization, RoleChoices
+from apps.tenancy.middleware import get_current_tenant
+from apps.tenancy.models import Organization
 from apps.tenancy.permissions import CanCreateInvoice, IsAuditorReadOnly
 
 
@@ -94,14 +94,6 @@ class InvoiceListCreateAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Role check: Block Auditor from write operations
-        role = getattr(request, "tenant_role", None) or get_current_tenant_role()
-        if role == RoleChoices.AUDITOR:
-            return Response(
-                {"detail": "Auditor role has strictly read-only access."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         serializer = InvoiceCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -162,13 +154,6 @@ class InvoiceIssueAPIView(APIView):
             return Response(
                 {"detail": "No active tenant organization context found."},
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        role = getattr(request, "tenant_role", None) or get_current_tenant_role()
-        if role == RoleChoices.AUDITOR:
-            return Response(
-                {"detail": "Auditor role has strictly read-only access."},
-                status=status.HTTP_403_FORBIDDEN,
             )
 
         invoice = Invoice.objects.filter(id=pk, organization=tenant).first()
@@ -249,13 +234,6 @@ class InvoiceGeneratePDFAPIView(APIView):
             return Response(
                 {"detail": "No active tenant organization context found."},
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        role = getattr(request, "tenant_role", None) or get_current_tenant_role()
-        if role == RoleChoices.AUDITOR:
-            return Response(
-                {"detail": "Auditor role has strictly read-only access."},
-                status=status.HTTP_403_FORBIDDEN,
             )
 
         invoice = (
