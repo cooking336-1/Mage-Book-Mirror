@@ -19,6 +19,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const saved = localStorage.getItem("mage-mode") as AppMode | null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved === "simple" || saved === "full") setModeState(saved);
   }, []);
 
