@@ -4,6 +4,7 @@ from django.urls import path
 
 from apps.payroll.views import (
     PayrollApprovalAPIView,
+    PayrollDisburseAPIView,
     PayrollRunDetailAPIView,
     PayrollRunListCreateAPIView,
     PayrollRunSubmitAPIView,
@@ -18,6 +19,7 @@ urlpatterns = [
     path("runs/<uuid:pk>/", PayrollRunDetailAPIView.as_view(), name="run-detail"),
     path("runs/<uuid:pk>/submit/", PayrollRunSubmitAPIView.as_view(), name="run-submit"),
     path("runs/<uuid:pk>/approve/", PayrollApprovalAPIView.as_view(), name="run-approve"),
+    path("runs/<uuid:pk>/disburse/", PayrollDisburseAPIView.as_view(), name="run-disburse"),
     path("2fa/setup/", PayrollTwoFactorSetupAPIView.as_view(), name="2fa-setup"),
     path("2fa/verify/", PayrollTwoFactorVerifyAPIView.as_view(), name="2fa-verify"),
 ]

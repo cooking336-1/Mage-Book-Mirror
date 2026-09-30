@@ -460,6 +460,16 @@ class JournalEntry(BaseTenantModel):
         self.clean()
         super().save(*args, **kwargs)
 
+    @property
+    def total_debits(self) -> Decimal:
+        """Computes aggregate debit sum across all lines."""
+        return sum((line.debit_amount for line in self.lines.all()), Decimal("0.0000"))
+
+    @property
+    def total_credits(self) -> Decimal:
+        """Computes aggregate credit sum across all lines."""
+        return sum((line.credit_amount for line in self.lines.all()), Decimal("0.0000"))
+
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         if self.is_posted:
             raise ValidationError("Cannot delete a posted journal entry.")
