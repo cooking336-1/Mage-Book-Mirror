@@ -108,7 +108,7 @@ class JWTAuthAPITests(TestCase):
         refresh_cookie = response.cookies["refresh_token"]
         self.assertTrue(refresh_cookie["httponly"])
         self.assertEqual(refresh_cookie["samesite"], "Strict")
-        self.assertEqual(refresh_cookie["path"], "/api/v1/auth/")
+        self.assertEqual(refresh_cookie["path"], "/")
 
     def test_login_invalid_credentials_returns_401(self):
         """Verify login with incorrect password returns 401 Unauthorized."""

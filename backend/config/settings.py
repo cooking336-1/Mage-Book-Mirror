@@ -187,6 +187,7 @@ JWT_AUTH_COOKIE = "access_token"
 JWT_REFRESH_COOKIE = "refresh_token"
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
 JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="Strict")
+JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
 # Cloudflare R2 Object Storage (S3-Compatible)
 CLOUDFLARE_R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", default="")
