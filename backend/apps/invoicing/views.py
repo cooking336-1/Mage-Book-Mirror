@@ -18,19 +18,22 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.invoicing.models import Contact, Invoice
+from apps.invoicing.models import Contact, CreditNote, Invoice
 from apps.invoicing.serializers import (
     ContactSerializer,
+    CreditNoteCreateSerializer,
+    CreditNoteSerializer,
     InvoiceCreateSerializer,
     InvoiceDetailSerializer,
     InvoiceListSerializer,
     PublicInvoiceSerializer,
 )
 from apps.invoicing.services import InvoicingService
+from apps.invoicing.services.credit_note_service import CreditNoteService
 from apps.invoicing.services.pdf_service import InvoicePDFService
 from apps.tenancy.middleware import get_current_tenant
 from apps.tenancy.models import Organization
-from apps.tenancy.permissions import CanCreateInvoice, IsAuditorReadOnly
+from apps.tenancy.permissions import CanCreateInvoice, CanIssueRefund, IsAuditorReadOnly
 
 
 def resolve_request_tenant(request: Request) -> Organization | None:
@@ -352,3 +355,97 @@ class PublicInvoiceView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return Invoice.objects.all().select_related("organization").prefetch_related("lines")
+
+
+class CreditNoteListCreateAPIView(APIView):
+    """List or issue statutory Ghanaian Credit Notes (Act 1151).
+
+    Enforces:
+    - Segregation of Duties: CanIssueRefund (Owner, Admin, Accountant).
+    - Auditor Read-Only: IsAuditorReadOnly.
+    - Double-refund pessimistic locking on original invoice.
+    """
+
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly, CanIssueRefund]
+
+    def get(self, request: Request) -> Response:
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = (
+            CreditNote.objects.filter(organization=tenant)
+            .select_related("invoice", "customer")
+            .prefetch_related("lines")
+            .order_by("-issue_date", "-created_at")
+        )
+        invoice_id = request.query_params.get("invoice_id")
+        if invoice_id:
+            queryset = queryset.filter(invoice_id=invoice_id)
+
+        serializer = CreditNoteSerializer(queryset[:100], many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = CreditNoteCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+
+        try:
+            credit_note, _ = CreditNoteService.issue_credit_note(
+                organization=tenant,
+                invoice_id=str(validated_data["invoice_id"]),
+                lines_data=validated_data["lines"],
+                reason=validated_data["reason"],
+                user=request.user,
+                issue_date=validated_data.get("issue_date"),
+                ip_address=request.META.get("REMOTE_ADDR"),
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            )
+        except (ValidationError, DjangoValidationError) as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            CreditNoteSerializer(credit_note).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CreditNoteDetailAPIView(APIView):
+    """Retrieve detailed credit note record with itemized lines and legal snapshot."""
+
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
+
+    def get(self, request: Request, pk: str) -> Response:
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        credit_note = (
+            CreditNote.objects.filter(organization=tenant, id=pk)
+            .select_related("invoice", "customer")
+            .prefetch_related("lines")
+            .first()
+        )
+        if not credit_note:
+            return Response(
+                {"detail": f"Credit note '{pk}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CreditNoteSerializer(credit_note)
+        return Response(serializer.data, status=status.HTTP_200_OK)

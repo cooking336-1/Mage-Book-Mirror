@@ -12,7 +12,13 @@ from typing import Any
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from apps.invoicing.models import Contact, Invoice, InvoiceLine
+from apps.invoicing.models import (
+    Contact,
+    CreditNote,
+    CreditNoteLine,
+    Invoice,
+    InvoiceLine,
+)
 from apps.invoicing.validators import validate_ghana_card, validate_gra_tin
 from apps.tenancy.models import TaxSchemeChoices
 
@@ -283,3 +289,82 @@ class PublicInvoiceSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class CreditNoteLineSerializer(serializers.ModelSerializer):
+    """Detailed serializer for CreditNoteLine."""
+
+    class Meta:
+        model = CreditNoteLine
+        fields = [
+            "id",
+            "description",
+            "quantity",
+            "unit_price",
+            "line_total",
+            "vat_rate",
+            "nhil_rate",
+            "getfund_rate",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CreditNoteSerializer(serializers.ModelSerializer):
+    """Detailed serializer for CreditNote entities."""
+
+    lines = CreditNoteLineSerializer(many=True, read_only=True)
+    invoice_number = serializers.CharField(source="invoice.invoice_number", read_only=True)
+
+    class Meta:
+        model = CreditNote
+        fields = [
+            "id",
+            "credit_note_number",
+            "invoice",
+            "invoice_number",
+            "customer",
+            "issue_date",
+            "reason",
+            "status",
+            "currency",
+            "subtotal_amount",
+            "vat_amount",
+            "nhil_amount",
+            "getfund_amount",
+            "total_amount",
+            "journal_entry",
+            "customer_name",
+            "customer_tin",
+            "customer_ghana_card",
+            "customer_address",
+            "customer_phone",
+            "customer_email",
+            "lines",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class CreditNoteLineCreateSerializer(serializers.Serializer):
+    description = serializers.CharField(max_length=255)
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        default=Decimal("1.0000"),
+    )
+    unit_price = serializers.DecimalField(max_digits=18, decimal_places=4)
+
+
+class CreditNoteCreateSerializer(serializers.Serializer):
+    invoice_id = serializers.UUIDField()
+    reason = serializers.CharField()
+    issue_date = serializers.DateField(required=False)
+    lines = serializers.ListField(
+        child=CreditNoteLineCreateSerializer(),
+        allow_empty=False,
+    )

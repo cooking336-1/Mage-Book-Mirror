@@ -3,6 +3,8 @@ from rest_framework.routers import DefaultRouter
 
 from apps.invoicing.views import (
     ContactViewSet,
+    CreditNoteDetailAPIView,
+    CreditNoteListCreateAPIView,
     InvoiceDetailAPIView,
     InvoiceDownloadAPIView,
     InvoiceGeneratePDFAPIView,
@@ -40,5 +42,25 @@ urlpatterns = [
         "invoices/<uuid:pk>/generate-pdf/",
         InvoiceGeneratePDFAPIView.as_view(),
         name="invoice-generate-pdf",
+    ),
+    path(
+        "credit-notes/",
+        CreditNoteListCreateAPIView.as_view(),
+        name="credit-note-list-create",
+    ),
+    path(
+        "invoicing/credit-notes/",
+        CreditNoteListCreateAPIView.as_view(),
+        name="credit-note-list-create-alias",
+    ),
+    path(
+        "credit-notes/<uuid:pk>/",
+        CreditNoteDetailAPIView.as_view(),
+        name="credit-note-detail",
+    ),
+    path(
+        "invoicing/credit-notes/<uuid:pk>/",
+        CreditNoteDetailAPIView.as_view(),
+        name="credit-note-detail-alias",
     ),
 ]
