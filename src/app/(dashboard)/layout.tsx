@@ -1,3 +1,4 @@
+import IdleLockModal from "@/components/dashboard/IdleLockModal";
 import SideNavBar from "@/components/dashboard/SideNavBar";
 import TopNavBar from "@/components/dashboard/TopNavBar";
 import { ModeProvider } from "@/contexts/ModeContext";
@@ -12,6 +13,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <main className="flex-1">{children}</main>
         </div>
       </div>
+      <IdleLockModal />
     </ModeProvider>
   );
 }

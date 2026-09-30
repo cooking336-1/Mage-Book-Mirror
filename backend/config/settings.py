@@ -74,6 +74,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "apps.tenancy.middleware.TenantSecurityMiddleware",
+    "apps.core.middleware.IdempotencyMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -187,6 +188,7 @@ JWT_AUTH_COOKIE = "access_token"
 JWT_REFRESH_COOKIE = "refresh_token"
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
 JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="Strict")
+JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
 # Cloudflare R2 Object Storage (S3-Compatible)
 CLOUDFLARE_R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", default="")
@@ -219,3 +221,18 @@ CELERY_TIMEZONE = TIME_ZONE
 USE_MOCK_GRA = env.bool("USE_MOCK_GRA", default=IS_TESTING or DEBUG)
 GRA_EVAT_API_URL = env("GRA_EVAT_API_URL", default="https://mock-gra.gov.gh/api/v1")
 GRA_EVAT_API_KEY = env("GRA_EVAT_API_KEY", default="mock_gra_api_key_test")
+
+# Hubtel SMS Gateway Settings
+USE_MOCK_SMS = env.bool("USE_MOCK_SMS", default=IS_TESTING or DEBUG)
+HUBTEL_SMS_CLIENT_ID = env("HUBTEL_SMS_CLIENT_ID", default="mock_hubtel_sms_client_id")
+HUBTEL_SMS_CLIENT_SECRET = env("HUBTEL_SMS_CLIENT_SECRET", default="mock_hubtel_sms_client_secret")
+HUBTEL_SMS_SENDER_ID = env("HUBTEL_SMS_SENDER_ID", default="MageBooks")
+
+# Column-Level Field Encryption (Task C.5 / Feature G6)
+if IS_TESTING or DEBUG:
+    FIELD_ENCRYPTION_KEY = env(
+        "FIELD_ENCRYPTION_KEY",
+        default="Ku28bI7MzQzGzP13tJYbyZyNeTnZ-mkcg_ZvAdL4xNQ=",
+    )
+else:
+    FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")

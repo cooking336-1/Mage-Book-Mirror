@@ -18,7 +18,7 @@ export default function PaymentsPage() {
 
       <div className="bg-white border border-[#c3c6d7] rounded-xl p-12 text-center text-[#434655]">
         <p className="font-semibold text-[#141b2b] text-lg mb-1">No payments recorded</p>
-        <p className="text-sm">Payments you've made will appear here.</p>
+        <p className="text-sm">Payments you&apos;ve made will appear here.</p>
       </div>
 
       <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">

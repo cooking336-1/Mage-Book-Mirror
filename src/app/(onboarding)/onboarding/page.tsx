@@ -70,6 +70,7 @@ export default function OnboardingPage() {
     setLoading(true);
     try {
       // 1. Provision organization via Directive 9 Axios singleton
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orgPayload: Record<string, any> = {
         name: companyName,
         address: state.company.address.trim(),
@@ -97,6 +98,7 @@ export default function OnboardingPage() {
       // 2. Optionally seed initial contacts if entered in Step 6
       for (const c of state.contacts) {
         if (c.name && c.name.trim()) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const contactPayload: Record<string, any> = {
             name: c.name.trim(),
             contact_type: c.type === "Supplier" ? "SUPPLIER" : "CUSTOMER",
@@ -122,6 +124,7 @@ export default function OnboardingPage() {
 
       // 3. Navigate into the dashboard
       router.push("/dashboard");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("Onboarding submission failed:", err);
       const data = err.response?.data;
@@ -140,7 +143,6 @@ export default function OnboardingPage() {
     }
   };
 
-  const isLastStep = step === TOTAL_STEPS;
 
   return (
     <div className="min-h-screen bg-[#f4f7fe] flex flex-col">

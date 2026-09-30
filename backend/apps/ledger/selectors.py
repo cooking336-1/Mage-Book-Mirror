@@ -23,7 +23,6 @@ from django.db.models import Sum
 from apps.ledger.models import (
     CategoryCodeChoices,
     ChartOfAccounts,
-    JournalEntry,
     JournalLine,
     NormalBalanceChoices,
 )
@@ -252,23 +251,15 @@ def get_account_balances(
     account_ids = [acc["id"] for acc in accounts_list]
 
     # 2. Build filtered JournalLine query for posted entries
-    lines_qs = JournalLine.objects.filter(organization=organization).order_by()
+    lines_qs = JournalLine.objects.filter(
+        organization=organization,
+        journal_entry__is_posted=True,
+    ).order_by()
 
-    if as_of_date or start_date:
-        lines_qs = lines_qs.filter(journal_entry__is_posted=True)
-        if as_of_date:
-            lines_qs = lines_qs.filter(journal_entry__entry_date__lte=as_of_date)
-        if start_date:
-            lines_qs = lines_qs.filter(journal_entry__entry_date__gte=start_date)
-    else:
-        # Fast path: only join journal_entries if unposted entries exist in this tenant
-        has_unposted = (
-            JournalEntry.objects.filter(organization=organization, is_posted=False)
-            .order_by()
-            .exists()
-        )
-        if has_unposted:
-            lines_qs = lines_qs.filter(journal_entry__is_posted=True)
+    if as_of_date:
+        lines_qs = lines_qs.filter(journal_entry__entry_date__lte=as_of_date)
+    if start_date:
+        lines_qs = lines_qs.filter(journal_entry__entry_date__gte=start_date)
 
     if category_codes is not None:
         lines_qs = lines_qs.filter(account_id__in=account_ids)

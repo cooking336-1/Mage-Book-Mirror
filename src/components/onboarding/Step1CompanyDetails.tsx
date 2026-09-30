@@ -1,6 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import {
+  formatGhanaCard,
+  formatGraTin,
+  getGhanaCardError,
+  getGraTinError,
+} from "@/lib/formatters";
 
 interface Step1Data {
   companyName: string;
@@ -17,8 +23,26 @@ interface Props {
 }
 
 export default function Step1CompanyDetails({ data, onChange }: Props) {
+  const [tinTouched, setTinTouched] = useState(false);
+  const [cardTouched, setCardTouched] = useState(false);
+
   const set = (field: keyof Step1Data) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     onChange({ ...data, [field]: e.target.value });
+
+  const handleTinBlur = () => {
+    setTinTouched(true);
+    const formatted = formatGraTin(data.businessTin);
+    onChange({ ...data, businessTin: formatted });
+  };
+
+  const handleCardBlur = () => {
+    setCardTouched(true);
+    const formatted = formatGhanaCard(data.ghanaCard);
+    onChange({ ...data, ghanaCard: formatted });
+  };
+
+  const tinError = tinTouched && data.businessTin ? getGraTinError(data.businessTin) : null;
+  const cardError = cardTouched && data.ghanaCard ? getGhanaCardError(data.ghanaCard) : null;
 
   return (
     <div className="bg-white rounded-xl border border-[#c3c6d7] shadow-sm overflow-hidden">
@@ -52,9 +76,13 @@ export default function Step1CompanyDetails({ data, onChange }: Props) {
               type="text"
               value={data.businessTin}
               onChange={set("businessTin")}
+              onBlur={handleTinBlur}
               placeholder="C0001234567"
-              className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb]"
+              className={`w-full h-12 px-4 bg-[#f9f9ff] border ${
+                tinError ? "border-red-400 focus:ring-red-400" : "border-[#c3c6d7] focus:ring-[#2563eb]"
+              } rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 font-mono uppercase`}
             />
+            {tinError && <p className="text-xs text-red-600 mt-1">{tinError}</p>}
           </div>
           <div>
             <label className="block text-sm text-[#141b2b] mb-2">Ghana Card Number</label>
@@ -62,9 +90,13 @@ export default function Step1CompanyDetails({ data, onChange }: Props) {
               type="text"
               value={data.ghanaCard}
               onChange={set("ghanaCard")}
+              onBlur={handleCardBlur}
               placeholder="GHA-000000000-0"
-              className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb]"
+              className={`w-full h-12 px-4 bg-[#f9f9ff] border ${
+                cardError ? "border-red-400 focus:ring-red-400" : "border-[#c3c6d7] focus:ring-[#2563eb]"
+              } rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 font-mono uppercase`}
             />
+            {cardError && <p className="text-xs text-red-600 mt-1">{cardError}</p>}
           </div>
         </div>
 

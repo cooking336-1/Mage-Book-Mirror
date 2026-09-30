@@ -28,6 +28,7 @@ def set_jwt_cookies(
     """Attach JWT access and refresh tokens to response as HttpOnly, SameSite=Strict cookies."""
     cookie_secure = getattr(settings, "JWT_COOKIE_SECURE", not settings.DEBUG)
     cookie_samesite = getattr(settings, "JWT_COOKIE_SAMESITE", "Strict")
+    cookie_path = getattr(settings, "JWT_AUTH_COOKIE_PATH", "/")
     access_cookie_name = getattr(settings, "JWT_AUTH_COOKIE", "access_token")
     refresh_cookie_name = getattr(settings, "JWT_REFRESH_COOKIE", "refresh_token")
 
@@ -44,7 +45,7 @@ def set_jwt_cookies(
         httponly=True,
         secure=cookie_secure,
         samesite=cookie_samesite,
-        path="/",
+        path=cookie_path,
     )
 
     if refresh_token is not None:
@@ -57,17 +58,21 @@ def set_jwt_cookies(
             httponly=True,
             secure=cookie_secure,
             samesite=cookie_samesite,
-            path="/api/v1/auth/",
+            path=cookie_path,
         )
 
 
 def delete_jwt_cookies(response: Response) -> None:
     """Clear JWT cookies from client session."""
+    cookie_path = getattr(settings, "JWT_AUTH_COOKIE_PATH", "/")
     access_cookie_name = getattr(settings, "JWT_AUTH_COOKIE", "access_token")
     refresh_cookie_name = getattr(settings, "JWT_REFRESH_COOKIE", "refresh_token")
 
-    response.delete_cookie(access_cookie_name, path="/")
-    response.delete_cookie(refresh_cookie_name, path="/api/v1/auth/")
+    response.delete_cookie(access_cookie_name, path=cookie_path)
+    response.delete_cookie(refresh_cookie_name, path=cookie_path)
+    if cookie_path != "/api/v1/auth/":
+        # Defensive cleanup for legacy cookies set with explicit /api/v1/auth/ path
+        response.delete_cookie(refresh_cookie_name, path="/api/v1/auth/")
 
 
 class RegisterView(APIView):
@@ -229,3 +234,26 @@ class CurrentUserView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(UserResponseSerializer(request.user).data, status=status.HTTP_200_OK)
+
+
+class VerifyPasswordView(APIView):
+    """Verifies user password to unlock idle session without losing application state."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request) -> Response:
+        password = request.data.get("password")
+        if not password:
+            return Response(
+                {"password": ["Password is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.user.check_password(password):
+            return Response(
+                {"detail": "Incorrect password. Please try again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return Response(
+            {"detail": "Password verified successfully."},
+            status=status.HTTP_200_OK,
+        )

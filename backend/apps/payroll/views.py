@@ -34,6 +34,7 @@ from apps.payroll.serializers import (
 )
 from apps.payroll.services.approval_service import PayrollApprovalService
 from apps.payroll.services.calculator import StatutoryPayrollEngine
+from apps.payroll.services.disbursement import PayrollDisbursementService
 from apps.payroll.services.totp_service import (
     generate_base32_secret,
     verify_totp_code,
@@ -328,3 +329,39 @@ class PayrollTwoFactorVerifyAPIView(APIView):
             {"status": "SUCCESS", "message": "Two-Factor Authentication successfully activated."},
             status=status.HTTP_200_OK,
         )
+
+
+class PayrollDisburseAPIView(APIView):
+    """State transition resource: POST /api/v1/payroll/runs/<pk>/disburse/
+
+    Enforces:
+    - Segregation of Duties: Permitted strictly for OWNER and ADMIN (CanApprovePayroll).
+    - Idempotency & Concurrency: Distributed lock prevents double-payout.
+    - Secondary GL: Net Salaries Payable (2010) -> Mobile Money Clearing (1015).
+    """
+
+    permission_classes = [IsAuthenticated, CanApprovePayroll]
+
+    def post(self, request: Request, pk: str) -> Response:
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payroll_run = get_object_or_404(PayrollRun, id=pk, organization=tenant)
+
+        try:
+            disbursed_run, _ = PayrollDisbursementService.disburse_payroll_run(
+                payroll_run_id=str(payroll_run.id),
+                organization_id=str(tenant.id),
+                user=request.user,
+                ip_address=get_client_ip(request),
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            )
+        except (ValidationError, DjangoValidationError) as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(PayrollRunSerializer(disbursed_run).data, status=status.HTTP_200_OK)

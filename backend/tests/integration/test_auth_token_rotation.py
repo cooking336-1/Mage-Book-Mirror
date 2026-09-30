@@ -55,7 +55,7 @@ class AuthTokenRotationIntegrationTests(APITestCase):
         self.assertIn("refresh_token", response.cookies)
         rotated_refresh_str = response.cookies["refresh_token"].value
         self.assertTrue(response.cookies["refresh_token"]["httponly"])
-        self.assertEqual(response.cookies["refresh_token"]["path"], "/api/v1/auth/")
+        self.assertEqual(response.cookies["refresh_token"]["path"], "/")
         self.assertNotEqual(rotated_refresh_str, initial_refresh_str)
 
         # Security hardening: Cookie-authenticated refresh MUST NOT leak refresh token in JSON

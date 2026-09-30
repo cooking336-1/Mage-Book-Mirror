@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
+import { formatGraTin, getGraTinError } from "@/lib/formatters";
 
 type ContactType = "Customer" | "Supplier" | "Both";
 
@@ -119,9 +119,19 @@ export default function Step6Contacts({ contacts, onChange }: Props) {
                       type="text"
                       value={contact.tin}
                       onChange={e => updateContact(contact.id, "tin", e.target.value)}
+                      onBlur={() => updateContact(contact.id, "tin", formatGraTin(contact.tin))}
                       placeholder="P0012345678"
-                      className="w-full h-10 px-3 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-sm text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-1 focus:ring-[#2563eb] font-mono uppercase"
+                      className={`w-full h-10 px-3 bg-[#f9f9ff] border ${
+                        contact.tin && getGraTinError(contact.tin)
+                          ? "border-red-400 focus:ring-red-400"
+                          : "border-[#c3c6d7] focus:ring-[#2563eb]"
+                      } rounded-lg text-sm text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-1 font-mono uppercase`}
                     />
+                    {contact.tin && getGraTinError(contact.tin) && (
+                      <p className="text-[11px] text-red-500">
+                        {getGraTinError(contact.tin)}
+                      </p>
+                    )}
                   </div>
                 </div>
 

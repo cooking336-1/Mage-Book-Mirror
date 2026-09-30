@@ -16,6 +16,7 @@ from typing import Any
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
+from apps.tenancy.middleware import get_current_tenant_role
 from apps.tenancy.models import RoleChoices
 
 
@@ -28,7 +29,7 @@ class IsAuditorReadOnly(BasePermission):
     """
 
     def has_permission(self, request: Any, view: Any) -> bool:
-        role = getattr(request, "tenant_role", None)
+        role = getattr(request, "tenant_role", None) or get_current_tenant_role()
         membership = getattr(request, "membership", None)
 
         if role == RoleChoices.AUDITOR:
