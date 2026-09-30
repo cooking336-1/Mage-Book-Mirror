@@ -20,7 +20,12 @@ from apps.ledger.models import FiscalCalendar, PeriodLengthChoices
 from apps.ledger.services.seeder import generate_fiscal_periods, seed_standard_chart_of_accounts
 from apps.payroll.models import PayrollTwoFactorProfile
 from apps.payroll.services.totp_service import consume_totp_token, verify_totp_code
-from apps.tenancy.models import Organization, OrganizationMembership, RoleChoices
+from apps.tenancy.models import (
+    ExperienceModeChoices,
+    Organization,
+    OrganizationMembership,
+    RoleChoices,
+)
 from apps.tenancy.permissions import HasTenantRole, IsAuditorReadOnly
 from apps.tenancy.serializers import (
     OrganizationCreateSerializer,
@@ -461,20 +466,107 @@ class OrganizationSettlementAPIView(APIView):
 
 
 # ============================================================================
-# SOLE DESTROYER: SOFT-ARCHIVAL DEACTIVATION (ACT 896 6-YEAR RETENTION)
+# TENANT WORKSPACE MANAGEMENT (CURRENT TENANT: GET, PATCH, AND SOLE DESTROYER DELETE)
 # ============================================================================
-class OrganizationDeactivationAPIView(APIView):
-    """Endpoint for terminating and soft-archiving an organization workspace:
-    DELETE /api/v1/tenancy/organizations/current/
+class OrganizationCurrentDetailAPIView(APIView):
+    """Endpoint for inspecting, updating, and deactivating the current tenant organization:
+    - GET /api/v1/tenancy/organizations/current/
+    - PATCH /api/v1/tenancy/organizations/current/
+    - DELETE /api/v1/tenancy/organizations/current/
 
-    Architecture Manual 4.6.2: Sole Destroyer Rule
-    - Strictly FORBIDDEN for Admins and all non-owners (HTTP 403 Forbidden).
-    - Permitted exclusively to the primary Organization OWNER.
-    - Soft-deactivates the organization preserving statutory general ledger and invoice
-      records for the mandatory 6-year retention period under Ghanaian tax law.
+    Architecture Manual 4.6.2 & Task D.2 (F8):
+    - GET: Returns active tenant organization details.
+    - PATCH: Updates organizational preferences (e.g. default_experience_mode, name, contact info).
+             Restricted to OWNER and ADMIN. Auditors and other roles blocked with HTTP 403.
+    - DELETE (Sole Destroyer Rule): Exclusively permitted to the primary Organization OWNER
+             to soft-archive the workspace for 6-year statutory retention under Act 896.
     """
 
     permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        """Returns the serialized organization details for the active tenant."""
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = OrganizationDetailSerializer(tenant)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def patch(self, request: Request) -> Response:
+        """Updates organization preferences (e.g. default_experience_mode, name, contact info).
+
+        Restricted strictly to OWNER and ADMIN. Auditors and non-managers blocked with 403.
+        """
+        tenant = getattr(request, "tenant", None)
+        caller_role = getattr(request, "tenant_role", None)
+
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if caller_role not in [RoleChoices.OWNER, RoleChoices.ADMIN]:
+            raise PermissionDenied(
+                "Only an Organization Owner or Admin can update organization settings."
+            )
+
+        data = request.data.copy()
+
+        # Support 'accounting_mode' alias for 'default_experience_mode'
+        if "accounting_mode" in data and "default_experience_mode" not in data:
+            mode_val = str(data["accounting_mode"]).strip().lower()
+            if mode_val in ["strict", "professional", "full"]:
+                data["default_experience_mode"] = ExperienceModeChoices.FULL
+            elif mode_val in ["agile", "simple"]:
+                data["default_experience_mode"] = ExperienceModeChoices.SIMPLE
+            else:
+                data["default_experience_mode"] = mode_val
+
+        update_fields = []
+        if "default_experience_mode" in data:
+            new_mode = str(data["default_experience_mode"]).strip().lower()
+            if new_mode in ExperienceModeChoices.values:
+                tenant.default_experience_mode = new_mode
+                update_fields.append("default_experience_mode")
+            else:
+                choices = list(ExperienceModeChoices.values)
+                return Response(
+                    {
+                        "default_experience_mode": (
+                            f"Invalid mode '{new_mode}'. Supported choices: {choices}"
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        for field in ["name", "address", "phone", "email"]:
+            if field in data:
+                val = str(data[field]).strip()
+                setattr(tenant, field, val)
+                update_fields.append(field)
+
+        if update_fields:
+            tenant.save(update_fields=update_fields + ["updated_at"])
+
+            AuditTrail.objects.create(
+                organization=tenant,
+                user=request.user,
+                action="ORGANIZATION_UPDATED",
+                entity_type="Organization",
+                entity_id=str(tenant.id),
+                metadata={
+                    "updated_fields": update_fields,
+                    "updated_by": request.user.email,
+                    "role": caller_role,
+                },
+            )
+
+        serializer = OrganizationDetailSerializer(tenant)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request: Request) -> Response:
         """Soft-deactivates the organization workspace strictly for the primary Owner."""
@@ -520,6 +612,9 @@ class OrganizationDeactivationAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+OrganizationDeactivationAPIView = OrganizationCurrentDetailAPIView
 
 
 class OrganizationCreateAPIView(generics.ListCreateAPIView):
