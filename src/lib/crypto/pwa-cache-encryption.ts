@@ -189,3 +189,94 @@ export async function decryptCustomerCacheRecord(
     email: pii.email ?? "",
   };
 }
+
+export interface OfflineInvoiceLine {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  supplyType?: string;
+  accountId?: string | null;
+}
+
+export interface OfflineInvoiceDraft {
+  id: string; // client-side UUID
+  organizationId: string;
+  customerId: string;
+  customerName?: string;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  lines: OfflineInvoiceLine[];
+  notes?: string;
+  createdAt: number;
+  syncStatus: "pending" | "syncing" | "failed";
+  syncError?: string;
+}
+
+export interface EncryptedOfflineInvoiceDraft {
+  id: string;
+  organizationId: string;
+  createdAt: number;
+  syncStatus: "pending" | "syncing" | "failed";
+  encryptedData: EncryptedPayload;
+  isEncrypted: true;
+}
+
+/**
+ * Encrypts an offline invoice draft using WebCrypto AES-GCM before writing to IndexedDB (MUC 3.1).
+ */
+export async function encryptInvoiceDraft(
+  draft: OfflineInvoiceDraft,
+  key: CryptoKey
+): Promise<EncryptedOfflineInvoiceDraft> {
+  const payloadToEncrypt = JSON.stringify({
+    customerId: draft.customerId,
+    customerName: draft.customerName,
+    issueDate: draft.issueDate,
+    dueDate: draft.dueDate,
+    currency: draft.currency,
+    lines: draft.lines,
+    notes: draft.notes,
+    syncError: draft.syncError,
+  });
+
+  const encryptedData = await encryptSensitivePayload(payloadToEncrypt, key);
+
+  return {
+    id: draft.id,
+    organizationId: draft.organizationId,
+    createdAt: draft.createdAt,
+    syncStatus: draft.syncStatus,
+    encryptedData,
+    isEncrypted: true,
+  };
+}
+
+/**
+ * Decrypts an encrypted offline invoice draft from IndexedDB back to plaintext representation.
+ */
+export async function decryptInvoiceDraft(
+  cachedRecord: EncryptedOfflineInvoiceDraft,
+  key: CryptoKey
+): Promise<OfflineInvoiceDraft> {
+  const decryptedString = await decryptSensitivePayload(
+    cachedRecord.encryptedData,
+    key
+  );
+  const data = JSON.parse(decryptedString);
+
+  return {
+    id: cachedRecord.id,
+    organizationId: cachedRecord.organizationId,
+    createdAt: cachedRecord.createdAt,
+    syncStatus: cachedRecord.syncStatus,
+    customerId: data.customerId,
+    customerName: data.customerName,
+    issueDate: data.issueDate,
+    dueDate: data.dueDate,
+    currency: data.currency,
+    lines: data.lines || [],
+    notes: data.notes,
+    syncError: data.syncError,
+  };
+}
