@@ -14,6 +14,7 @@ Satisfies:
 - Immutable Forensic Audit Trail recording
 """
 
+import datetime
 import logging
 from decimal import Decimal
 from typing import Any
@@ -93,7 +94,7 @@ class CreditNoteService:
     def generate_credit_note_number(
         cls,
         organization: Any,
-        issue_date: timezone.datetime.date | None = None,
+        issue_date: datetime.date | None = None,
     ) -> str:
         """Generates a strictly gapless credit note number using row-level locking."""
         date_val = issue_date or timezone.now().date()
