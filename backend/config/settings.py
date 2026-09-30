@@ -227,3 +227,12 @@ USE_MOCK_SMS = env.bool("USE_MOCK_SMS", default=IS_TESTING or DEBUG)
 HUBTEL_SMS_CLIENT_ID = env("HUBTEL_SMS_CLIENT_ID", default="mock_hubtel_sms_client_id")
 HUBTEL_SMS_CLIENT_SECRET = env("HUBTEL_SMS_CLIENT_SECRET", default="mock_hubtel_sms_client_secret")
 HUBTEL_SMS_SENDER_ID = env("HUBTEL_SMS_SENDER_ID", default="MageBooks")
+
+# Column-Level Field Encryption (Task C.5 / Feature G6)
+if IS_TESTING or DEBUG:
+    FIELD_ENCRYPTION_KEY = env(
+        "FIELD_ENCRYPTION_KEY",
+        default="Ku28bI7MzQzGzP13tJYbyZyNeTnZ-mkcg_ZvAdL4xNQ=",
+    )
+else:
+    FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")

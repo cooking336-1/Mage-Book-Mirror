@@ -16,6 +16,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
+from apps.core.fields import EncryptedCharField
 from apps.core.models import BaseTenantModel, PublicShareableMixin
 from apps.tax.services import (
     STATUTORY_GETFUND_RATE,
@@ -59,13 +60,13 @@ class Contact(BaseTenantModel):
         blank=True,
         help_text="Primary billing email address.",
     )
-    tin = models.CharField(
-        max_length=20,
+    tin = EncryptedCharField(
+        max_length=255,
         blank=True,
         help_text="Ghanaian Taxpayer Identification Number (e.g. C0001234567).",
     )
-    ghana_card_number = models.CharField(
-        max_length=25,
+    ghana_card_number = EncryptedCharField(
+        max_length=255,
         blank=True,
         help_text="Ghana Card National ID PIN (e.g. GHA-123456789-0).",
     )

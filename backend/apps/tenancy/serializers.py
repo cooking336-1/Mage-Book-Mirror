@@ -184,6 +184,17 @@ class OrganizationCreateSerializer(serializers.ModelSerializer):
         if tin and not attrs.get("business_tin"):
             attrs["business_tin"] = tin.strip().upper()
 
+        business_tin = attrs.get("business_tin")
+        if business_tin:
+            h = Organization.compute_tin_hash(business_tin)
+            qs = Organization.objects.filter(business_tin_hash=h)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"business_tin": "An organization with this business TIN already exists."}
+                )
+
         vat_status = attrs.pop("vat_status", None)
         if vat_status:
             status_clean = vat_status.strip().upper()

@@ -15,6 +15,7 @@ from django.conf import settings
 from django.db import models
 from rest_framework.exceptions import PermissionDenied
 
+from apps.core.fields import EncryptedCharField
 from apps.core.models import BaseTenantModel
 
 
@@ -152,8 +153,8 @@ class PayrollItem(BaseTenantModel):
         help_text="Parent payroll run.",
     )
     employee_name = models.CharField(max_length=255, help_text="Full legal name of employee.")
-    employee_tin_or_ghana_card = models.CharField(
-        max_length=50,
+    employee_tin_or_ghana_card = EncryptedCharField(
+        max_length=255,
         blank=True,
         default="",
         help_text="Ghana Card PIN (GHA-...) or GRA Individual TIN.",
