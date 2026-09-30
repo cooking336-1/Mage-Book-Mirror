@@ -26,6 +26,7 @@ GRA_PAYE_MONTHLY_BRACKETS: list[tuple[Decimal, Decimal]] = [
     (Decimal("30520.00"), Decimal("0.30")),  # Next 30,520 @ 30%
 ]
 EXCESS_PAYE_RATE = Decimal("0.35")  # Balance above 50,416.67 @ 35%
+SSNIT_MAX_INSURABLE_EARNINGS = Decimal("42000.00")  # Statutory SSNIT Tier 1 monthly earnings cap
 
 
 def quantize_currency(value: Decimal, places: Decimal = FOUR_PLACES) -> Decimal:
@@ -73,9 +74,10 @@ def calculate_payroll_item_deductions(gross_salary: Decimal) -> dict[str, Decima
     """
     gross = quantize_currency(gross_salary)
 
-    # 1. SSNIT Tier 1 Deductions
-    ssnit_employee = quantize_currency(gross * Decimal("0.055"))
-    ssnit_employer = quantize_currency(gross * Decimal("0.130"))
+    # 1. SSNIT Tier 1 Deductions (subject to statutory insurable earnings cap)
+    ssnit_base = min(gross, SSNIT_MAX_INSURABLE_EARNINGS)
+    ssnit_employee = quantize_currency(ssnit_base * Decimal("0.055"))
+    ssnit_employer = quantize_currency(ssnit_base * Decimal("0.130"))
 
     # 2. Taxable Income (Gross minus Employee SSNIT)
     taxable_income = max(Decimal("0.0000"), gross - ssnit_employee)
