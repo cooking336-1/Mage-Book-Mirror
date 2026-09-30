@@ -160,6 +160,6 @@ class TestSelectorsSecurity(TestCase):
     def test_zero_row_locks_hot_account_solution(self) -> None:
         """Asserts reporting queries never issue SELECT ... FOR UPDATE on accounts or lines."""
         with self.captureOnCommitCallbacks(execute=False):
-            with self.assertNumQueries(3):  # 1 for accounts, 1 for unposted check, 1 for lines
+            with self.assertNumQueries(2):  # 1 for accounts, 1 for lines (unposted pre-check eliminated in C.9)
                 tb = get_trial_balance(self.org_a)
                 self.assertIsNotNone(tb)
