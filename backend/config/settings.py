@@ -221,3 +221,9 @@ CELERY_TIMEZONE = TIME_ZONE
 USE_MOCK_GRA = env.bool("USE_MOCK_GRA", default=IS_TESTING or DEBUG)
 GRA_EVAT_API_URL = env("GRA_EVAT_API_URL", default="https://mock-gra.gov.gh/api/v1")
 GRA_EVAT_API_KEY = env("GRA_EVAT_API_KEY", default="mock_gra_api_key_test")
+
+# Hubtel SMS Gateway Settings
+USE_MOCK_SMS = env.bool("USE_MOCK_SMS", default=IS_TESTING or DEBUG)
+HUBTEL_SMS_CLIENT_ID = env("HUBTEL_SMS_CLIENT_ID", default="mock_hubtel_sms_client_id")
+HUBTEL_SMS_CLIENT_SECRET = env("HUBTEL_SMS_CLIENT_SECRET", default="mock_hubtel_sms_client_secret")
+HUBTEL_SMS_SENDER_ID = env("HUBTEL_SMS_SENDER_ID", default="MageBooks")
