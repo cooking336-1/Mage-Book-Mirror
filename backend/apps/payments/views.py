@@ -336,4 +336,3 @@ class PaymentListCreateAPIView(APIView):
         )
 
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
-
