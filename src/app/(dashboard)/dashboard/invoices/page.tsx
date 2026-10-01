@@ -78,6 +78,8 @@ function CreateInvoiceModal({
     const updated = [...lines];
     if (field === "quantity" || field === "unit_price") {
       updated[index] = { ...updated[index], [field]: parseFloat(String(value)) || 0 };
+    } else if (field === "description") {
+      updated[index] = { ...updated[index], description: String(value) };
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
