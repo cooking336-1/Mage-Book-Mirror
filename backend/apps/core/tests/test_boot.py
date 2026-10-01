@@ -12,7 +12,7 @@ class CoreBootTestCase(SimpleTestCase):
         self.assertTrue(settings.IS_TESTING)
 
     def test_database_is_sqlite_in_memory(self):
-        """Asserts that automated tests run exclusively against in-memory SQLite (or PostgreSQL in Stage 2 CI)."""
+        """Asserts tests run against in-memory SQLite (or PostgreSQL in CI)."""
         db_config = settings.DATABASES["default"]
         use_postgres = getattr(settings, "USE_POSTGRES_TESTS", False)
 
