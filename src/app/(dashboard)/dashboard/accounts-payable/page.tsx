@@ -87,7 +87,7 @@ export default function AccountsPayablePage() {
       try {
         const [accRes, contactsRes] = await Promise.allSettled([
           apiClient.get<AccountItem[]>("/api/v1/ledger/accounts/"),
-          apiClient.get<ContactItem[] | { results: ContactItem[] }>("/api/v1/invoicing/contacts/"),
+          apiClient.get<ContactItem[] | { results: ContactItem[] }>("/api/v1/contacts/?contact_type=SUPPLIER"),
         ]);
 
         if (isCancelled) return;
