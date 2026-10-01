@@ -4,17 +4,18 @@ from rest_framework import serializers
 
 from apps.payments.models import (
     Payment,
-    PaymentMethodChoices,
-    PaymentStatusChoices,
-    PaymentTransactionTypeChoices,
 )
 
 
 class PaymentSerializer(serializers.ModelSerializer):
     """Serializer for Payment transactions."""
 
-    customer_name = serializers.CharField(source="customer.name", read_only=True, default=None)
-    invoice_number = serializers.CharField(source="invoice.invoice_number", read_only=True, default=None)
+    customer_name = serializers.CharField(
+        source="customer.name", read_only=True, default=None
+    )
+    invoice_number = serializers.CharField(
+        source="invoice.invoice_number", read_only=True, default=None
+    )
 
     class Meta:
         model = Payment

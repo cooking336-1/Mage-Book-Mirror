@@ -275,14 +275,18 @@ class PasswordResetRequestView(APIView):
                 {"email": ["Please enter a valid email address."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        from django.contrib.auth import get_user_model
         import logging
+
+        from django.contrib.auth import get_user_model
 
         logger = logging.getLogger(__name__)
         clean_email = email.strip().lower()
         user = get_user_model().objects.filter(email=clean_email, is_active=True).first()
         if user:
-            logger.info("[PasswordResetRequestView] Password reset requested for user: %s", user.email)
+            logger.info(
+                "[PasswordResetRequestView] Password reset requested for user: %s",
+                user.email,
+            )
 
         return Response(
             {
