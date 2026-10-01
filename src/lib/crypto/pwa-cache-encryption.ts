@@ -22,12 +22,17 @@ export interface CustomerCacheRecord {
   billingAddress: string;
   phone: string;
   email: string;
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
+  serverAssignedId?: string;
+  syncError?: string;
 }
 
 export interface EncryptedCustomerCacheRecord {
   id: string;
   organizationId: string;
   name: string; // May remain searchable in UI or encrypted per policy
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
+  serverAssignedId?: string;
   encryptedData: EncryptedPayload;
   isEncrypted: true;
 }
@@ -152,6 +157,7 @@ export async function encryptCustomerCacheRecord(
     billingAddress: customer.billingAddress,
     phone: customer.phone,
     email: customer.email,
+    syncError: customer.syncError,
   });
 
   const encryptedData = await encryptSensitivePayload(sensitivePII, key);
@@ -160,6 +166,8 @@ export async function encryptCustomerCacheRecord(
     id: customer.id,
     organizationId: customer.organizationId,
     name: customer.name,
+    syncStatus: customer.syncStatus,
+    serverAssignedId: customer.serverAssignedId,
     encryptedData,
     isEncrypted: true,
   };
@@ -182,11 +190,14 @@ export async function decryptCustomerCacheRecord(
     id: cachedRecord.id,
     organizationId: cachedRecord.organizationId,
     name: cachedRecord.name,
+    syncStatus: cachedRecord.syncStatus,
+    serverAssignedId: cachedRecord.serverAssignedId,
     tin: pii.tin ?? "",
     ghanaCardNumber: pii.ghanaCardNumber ?? "",
     billingAddress: pii.billingAddress ?? "",
     phone: pii.phone ?? "",
     email: pii.email ?? "",
+    syncError: pii.syncError,
   };
 }
 

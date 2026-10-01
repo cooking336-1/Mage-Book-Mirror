@@ -257,14 +257,97 @@ export async function getOfflineCustomers(organizationId?: string): Promise<Cust
   });
 }
 
+/**
+ * Deletes a cached or offline customer record by ID.
+ */
+export async function deleteOfflineCustomer(id: string): Promise<void> {
+  const db = await initOfflineDB();
+  if (!db) return;
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.CUSTOMERS], "readwrite");
+    const store = transaction.objectStore(STORES.CUSTOMERS);
+    const request = store.delete(id);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error(`Failed to delete offline customer: ${request.error?.message}`));
+  });
+}
+
 export interface SyncResult {
   synced: number;
   failed: number;
   errors: Array<{ id: string; error: string }>;
 }
 
+export interface ContactSyncResult extends SyncResult {
+  idMap: Map<string, string>;
+}
+
+/**
+ * Synchronizes pending offline customer records with backend REST API (/api/v1/contacts/).
+ * Returns an ID mapping (clientTemporaryId -> serverPermanentUUID) to resolve foreign keys.
+ */
+export async function syncOfflineContacts(client = apiClient): Promise<ContactSyncResult> {
+  if (!isOfflineStorageSupported()) {
+    return { synced: 0, failed: 0, errors: [], idMap: new Map() };
+  }
+
+  const customers = await getOfflineCustomers();
+  const pending = customers.filter((c) => c.syncStatus === "pending" || c.syncStatus === "failed");
+
+  let synced = 0;
+  let failed = 0;
+  const errors: Array<{ id: string; error: string }> = [];
+  const idMap = new Map<string, string>();
+
+  for (const customer of pending) {
+    try {
+      customer.syncStatus = "syncing";
+      await saveOfflineCustomer(customer);
+
+      const payload = {
+        name: customer.name,
+        contact_type: "CUSTOMER",
+        tin: customer.tin || "",
+        ghana_card_number: customer.ghanaCardNumber || "",
+        phone: customer.phone || "",
+        email: customer.email || "",
+        billing_address: customer.billingAddress || "",
+        currency: "GHS",
+      };
+
+      const response = await client.post<{ id: string }>("/api/v1/contacts/", payload, {
+        headers: {
+          "Idempotency-Key": `offline-contact-${customer.id}`,
+          "X-Organization-ID": customer.organizationId,
+        },
+      });
+
+      const serverId = response.data.id;
+      idMap.set(customer.id, serverId);
+
+      customer.syncStatus = "synced";
+      customer.serverAssignedId = serverId;
+      customer.syncError = undefined;
+      await saveOfflineCustomer(customer);
+      synced++;
+    } catch (err: unknown) {
+      failed++;
+      const msg = err instanceof Error ? err.message : String(err);
+      customer.syncStatus = "failed";
+      customer.syncError = msg;
+      await saveOfflineCustomer(customer);
+      errors.push({ id: customer.id, error: msg });
+    }
+  }
+
+  return { synced, failed, errors, idMap };
+}
+
 /**
  * Synchronizes pending offline drafts with backend REST API.
+ * Guarantees Foreign Key integrity by syncing offline contacts FIRST and remapping customer IDs.
  * Uses Idempotency-Key headers to guarantee zero double-invoicing.
  */
 export async function syncOfflineInvoices(client = apiClient): Promise<SyncResult> {
@@ -272,6 +355,11 @@ export async function syncOfflineInvoices(client = apiClient): Promise<SyncResul
     return { synced: 0, failed: 0, errors: [] };
   }
 
+  // 1. Foreign Key Guard: Sync pending contacts first to resolve permanent server UUIDs
+  const contactSync = await syncOfflineContacts(client);
+  const idMap = contactSync.idMap;
+
+  // 2. Sync pending offline invoice drafts
   const drafts = await getOfflineInvoices();
   const pending = drafts.filter((d) => d.syncStatus === "pending" || d.syncStatus === "failed");
 
@@ -285,8 +373,11 @@ export async function syncOfflineInvoices(client = apiClient): Promise<SyncResul
       draft.syncStatus = "syncing";
       await saveOfflineInvoice(draft);
 
+      // Remap temporary customer ID to server-assigned permanent UUID if newly created offline
+      const resolvedCustomerId = idMap.get(draft.customerId) || draft.customerId;
+
       const payload = {
-        customer_id: draft.customerId,
+        customer_id: resolvedCustomerId,
         issue_date: draft.issueDate,
         due_date: draft.dueDate,
         currency: draft.currency || "GHS",
@@ -321,15 +412,30 @@ export async function syncOfflineInvoices(client = apiClient): Promise<SyncResul
     }
   }
 
-  if (typeof window !== "undefined" && synced > 0) {
+  if (typeof window !== "undefined" && (synced > 0 || contactSync.synced > 0)) {
     window.dispatchEvent(
       new CustomEvent("magebooks:offline-sync-complete", {
-        detail: { synced, failed, errors },
+        detail: {
+          invoices: { synced, failed, errors },
+          contacts: { synced: contactSync.synced, failed: contactSync.failed, errors: contactSync.errors },
+        },
       })
     );
   }
 
   return { synced, failed, errors };
+}
+
+/**
+ * Unified synchronizer that replays contacts and invoices sequentially.
+ */
+export async function syncOfflineAll(client = apiClient): Promise<{
+  contacts: ContactSyncResult;
+  invoices: SyncResult;
+}> {
+  const contacts = await syncOfflineContacts(client);
+  const invoices = await syncOfflineInvoices(client);
+  return { contacts, invoices };
 }
 
 /**
@@ -341,7 +447,7 @@ export function registerOfflineSyncListener(): () => void {
   }
 
   const handleOnline = () => {
-    syncOfflineInvoices().catch((err) => {
+    syncOfflineAll().catch((err) => {
       console.warn("Background offline sync failed:", err);
     });
   };

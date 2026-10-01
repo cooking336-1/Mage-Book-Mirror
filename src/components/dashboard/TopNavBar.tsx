@@ -116,7 +116,9 @@ export default function TopNavBar() {
     } catch {
       // Ignore network errors during logout
     } finally {
-      router.push("/login");
+      // Hard redirect to flush in-memory React state and client cache across sessions
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.href = "/login";
     }
   };
 
