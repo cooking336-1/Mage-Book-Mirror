@@ -90,7 +90,7 @@ export default function PaymentsPage() {
       try {
         const [payRes, contRes, invRes] = await Promise.allSettled([
           apiClient.get<PaymentItem[]>("/api/v1/payments/"),
-          apiClient.get<ContactItem[] | { results: ContactItem[] }>("/api/v1/invoicing/contacts/"),
+          apiClient.get<ContactItem[] | { results: ContactItem[] }>("/api/v1/contacts/"),
           apiClient.get<InvoiceOption[] | { results: InvoiceOption[] }>("/api/v1/invoices/"),
         ]);
 

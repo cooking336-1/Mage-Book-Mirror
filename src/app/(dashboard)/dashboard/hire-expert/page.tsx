@@ -155,25 +155,6 @@ export default function HireExpertPage() {
     try {
       // Create support / expert advisory enquiry reference
       const refId = `MB-EXP-${Date.now().toString().slice(-6)}`;
-
-      // Attempt to record consultation request via audit trail or internal note
-      try {
-        await apiClient.post("/api/v1/audit/trail/", {
-          action: "EXPERT_CONSULTATION_REQUESTED",
-          details: {
-            reference: refId,
-            service: selectedService?.title,
-            organization: orgName,
-            contact_name: contactName,
-            contact_phone: contactPhone,
-            urgency: preferredSchedule,
-            notes,
-          },
-        });
-      } catch {
-        // Graceful continuation if direct audit posting is restricted
-      }
-
       setSubmittedRef(refId);
     } finally {
       setIsSubmitting(false);

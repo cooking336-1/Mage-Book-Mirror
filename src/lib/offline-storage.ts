@@ -392,7 +392,7 @@ export async function syncOfflineInvoices(client = apiClient): Promise<SyncResul
         })),
       };
 
-      await client.post("/api/v1/invoicing/invoices/", payload, {
+      await client.post("/api/v1/invoices/", payload, {
         headers: {
           "Idempotency-Key": `offline-draft-${draft.id}`,
           "X-Organization-ID": draft.organizationId,
