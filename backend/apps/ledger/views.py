@@ -10,21 +10,30 @@ Implements pure RESTful resource conventions:
 import datetime
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.models import AuditTrail
-from apps.ledger.models import ChartOfAccounts, FiscalPeriod, JournalEntry, JournalLine
+from apps.ledger.models import (
+    ChartOfAccounts,
+    FiscalPeriod,
+    JournalEntry,
+    JournalLine,
+    SourceTypeChoices,
+)
 from apps.ledger.selectors import (
     get_balance_sheet,
     get_profit_and_loss,
     get_trial_balance,
 )
+from apps.ledger.services.ledger import LedgerService
 from apps.tenancy.middleware import get_current_tenant
 from apps.tenancy.models import Organization
 from apps.tenancy.permissions import CanCloseFiscalPeriod, IsAuditorReadOnly
@@ -216,6 +225,66 @@ class JournalEntryListAPIView(APIView):
             for entry in entries
         ]
         return Response(data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        """Posts a manual double-entry journal transaction."""
+        tenant = resolve_request_tenant(request)
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        entry_date_str = request.data.get("entry_date")
+        if not entry_date_str:
+            entry_date = datetime.date.today()
+        else:
+            entry_date = parse_date(entry_date_str, default=datetime.date.today())
+
+        narration = request.data.get("narration", "")
+        lines_data = request.data.get("lines", [])
+
+        if not lines_data or len(lines_data) < 2:
+            return Response(
+                {"detail": "A journal entry must contain at least two line items."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            entry = LedgerService.post_journal_entry(
+                organization=tenant,
+                entry_date=entry_date,
+                lines_data=lines_data,
+                narration=narration,
+                user=request.user,
+                source_type=SourceTypeChoices.MANUAL,
+            )
+        except (DjangoValidationError, DRFValidationError) as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "id": str(entry.id),
+                "entry_number": entry.entry_number,
+                "entry_date": entry.entry_date.isoformat(),
+                "narration": entry.narration,
+                "source_type": entry.source_type,
+                "is_posted": entry.is_posted,
+                "lines": [
+                    {
+                        "id": str(line.id),
+                        "account_code": line.account.account_code,
+                        "account_name": line.account.account_name,
+                        "description": line.description,
+                        "debit_amount": str(line.debit_amount),
+                        "credit_amount": str(line.credit_amount),
+                    }
+                    for line in entry.lines.all()
+                ],
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class JournalEntryDetailAPIView(APIView):

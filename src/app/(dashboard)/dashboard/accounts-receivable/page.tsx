@@ -34,7 +34,7 @@ export default function AccountsReceivablePage() {
     if (showLoading) setIsLoading(true);
     try {
       const res = await apiClient.get<InvoiceItem[] | { results: InvoiceItem[] }>(
-        "/api/v1/invoicing/invoices/"
+        "/api/v1/invoices/"
       );
       const list = Array.isArray(res.data) ? res.data : res.data.results || [];
       // Filter to outstanding / unpaid invoices
@@ -52,7 +52,7 @@ export default function AccountsReceivablePage() {
   useEffect(() => {
     let isCancelled = false;
     apiClient
-      .get<InvoiceItem[] | { results: InvoiceItem[] }>("/api/v1/invoicing/invoices/")
+      .get<InvoiceItem[] | { results: InvoiceItem[] }>("/api/v1/invoices/")
       .then((res) => {
         if (!isCancelled) {
           const list = Array.isArray(res.data) ? res.data : res.data.results || [];

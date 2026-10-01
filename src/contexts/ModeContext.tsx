@@ -3,25 +3,27 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import apiClient from "@/lib/apiClient";
 
-export type AppMode = "simple" | "full";
+export type AppMode = "simple" | "full" | "professional";
 
 interface ModeContextValue {
   mode: AppMode;
   setMode: (m: AppMode) => void;
   isSyncing: boolean;
+  isSimpleMode: boolean;
 }
 
 const ModeContext = createContext<ModeContextValue>({
   mode: "full",
   setMode: () => {},
   isSyncing: false,
+  isSimpleMode: false,
 });
 
 export function ModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<AppMode>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("mage-mode") as AppMode | null;
-      if (saved === "simple" || saved === "full") return saved;
+      if (saved === "simple" || saved === "full" || saved === "professional") return saved;
     }
     return "full";
   });
@@ -36,7 +38,10 @@ export function ModeProvider({ children }: { children: ReactNode }) {
           "/api/v1/tenancy/organizations/current/"
         );
         const serverMode = res.data?.default_experience_mode;
-        if (!isCancelled && (serverMode === "simple" || serverMode === "full")) {
+        if (
+          !isCancelled &&
+          (serverMode === "simple" || serverMode === "full" || serverMode === "professional")
+        ) {
           setModeState(serverMode);
           localStorage.setItem("mage-mode", serverMode);
         }
@@ -57,9 +62,10 @@ export function ModeProvider({ children }: { children: ReactNode }) {
 
     // Asynchronously synchronize with backend tenant organization record
     setIsSyncing(true);
+    const backendMode = m === "professional" ? "full" : m;
     apiClient
       .patch("/api/v1/tenancy/organizations/current/", {
-        default_experience_mode: m,
+        default_experience_mode: backendMode,
       })
       .catch((err) => {
         console.warn("Accounting mode synchronization deferred or failed:", err);
@@ -69,8 +75,10 @@ export function ModeProvider({ children }: { children: ReactNode }) {
       });
   };
 
+  const isSimpleMode = mode === "simple";
+
   return (
-    <ModeContext.Provider value={{ mode, setMode, isSyncing }}>
+    <ModeContext.Provider value={{ mode, setMode, isSyncing, isSimpleMode }}>
       {children}
     </ModeContext.Provider>
   );

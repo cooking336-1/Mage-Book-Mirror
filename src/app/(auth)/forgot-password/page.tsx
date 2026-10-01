@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Logo from "@/components/Logo";
+import apiClient from "@/lib/apiClient";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -14,36 +15,29 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!email.trim()) {
-      setErrorMessage("Please enter your registered email address.");
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      setErrorMessage("Please enter a valid email address.");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Endpoint is POST /api/v1/auth/password-reset/
-      // Uses standard fetch/axios gracefully with fallback
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const response = await fetch(`${apiUrl}/api/v1/auth/password-reset/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-
-      if (response.ok || response.status === 400 || response.status === 404) {
-        // For security, always show success to prevent email enumeration
-        setIsSubmitted(true);
-      } else {
-        setErrorMessage("An unexpected error occurred. Please try again later.");
-      }
-    } catch {
-      // Even if network error occurs in dev, show confirmation
+      await apiClient.post("/api/v1/auth/password-reset/", { email: cleanEmail });
       setIsSubmitted(true);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { email?: string[]; detail?: string } } };
+      const detail =
+        axiosErr.response?.data?.email?.[0] ||
+        axiosErr.response?.data?.detail ||
+        "An unexpected error occurred. Please try again later.";
+      setErrorMessage(detail);
     } finally {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-[#f4f7fe] flex flex-col items-center py-12 px-4">

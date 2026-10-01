@@ -31,6 +31,11 @@ urlpatterns = [
         name="public-invoice-detail-alias",
     ),
     path("invoices/", InvoiceListCreateAPIView.as_view(), name="invoice-list-create"),
+    path(
+        "invoicing/invoices/",
+        InvoiceListCreateAPIView.as_view(),
+        name="invoicing-invoice-list-create-alias",
+    ),
     path("invoices/<uuid:pk>/", InvoiceDetailAPIView.as_view(), name="invoice-detail"),
     path("invoices/<uuid:pk>/issue/", InvoiceIssueAPIView.as_view(), name="invoice-issue"),
     path(
