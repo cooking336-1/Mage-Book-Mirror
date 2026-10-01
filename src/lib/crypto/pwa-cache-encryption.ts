@@ -22,12 +22,17 @@ export interface CustomerCacheRecord {
   billingAddress: string;
   phone: string;
   email: string;
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
+  serverAssignedId?: string;
+  syncError?: string;
 }
 
 export interface EncryptedCustomerCacheRecord {
   id: string;
   organizationId: string;
   name: string; // May remain searchable in UI or encrypted per policy
+  syncStatus?: "pending" | "syncing" | "synced" | "failed";
+  serverAssignedId?: string;
   encryptedData: EncryptedPayload;
   isEncrypted: true;
 }
@@ -152,6 +157,7 @@ export async function encryptCustomerCacheRecord(
     billingAddress: customer.billingAddress,
     phone: customer.phone,
     email: customer.email,
+    syncError: customer.syncError,
   });
 
   const encryptedData = await encryptSensitivePayload(sensitivePII, key);
@@ -160,6 +166,8 @@ export async function encryptCustomerCacheRecord(
     id: customer.id,
     organizationId: customer.organizationId,
     name: customer.name,
+    syncStatus: customer.syncStatus,
+    serverAssignedId: customer.serverAssignedId,
     encryptedData,
     isEncrypted: true,
   };
@@ -182,10 +190,104 @@ export async function decryptCustomerCacheRecord(
     id: cachedRecord.id,
     organizationId: cachedRecord.organizationId,
     name: cachedRecord.name,
+    syncStatus: cachedRecord.syncStatus,
+    serverAssignedId: cachedRecord.serverAssignedId,
     tin: pii.tin ?? "",
     ghanaCardNumber: pii.ghanaCardNumber ?? "",
     billingAddress: pii.billingAddress ?? "",
     phone: pii.phone ?? "",
     email: pii.email ?? "",
+    syncError: pii.syncError,
+  };
+}
+
+export interface OfflineInvoiceLine {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  supplyType?: string;
+  accountId?: string | null;
+}
+
+export interface OfflineInvoiceDraft {
+  id: string; // client-side UUID
+  organizationId: string;
+  customerId: string;
+  customerName?: string;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  lines: OfflineInvoiceLine[];
+  notes?: string;
+  createdAt: number;
+  syncStatus: "pending" | "syncing" | "failed";
+  syncError?: string;
+}
+
+export interface EncryptedOfflineInvoiceDraft {
+  id: string;
+  organizationId: string;
+  createdAt: number;
+  syncStatus: "pending" | "syncing" | "failed";
+  encryptedData: EncryptedPayload;
+  isEncrypted: true;
+}
+
+/**
+ * Encrypts an offline invoice draft using WebCrypto AES-GCM before writing to IndexedDB (MUC 3.1).
+ */
+export async function encryptInvoiceDraft(
+  draft: OfflineInvoiceDraft,
+  key: CryptoKey
+): Promise<EncryptedOfflineInvoiceDraft> {
+  const payloadToEncrypt = JSON.stringify({
+    customerId: draft.customerId,
+    customerName: draft.customerName,
+    issueDate: draft.issueDate,
+    dueDate: draft.dueDate,
+    currency: draft.currency,
+    lines: draft.lines,
+    notes: draft.notes,
+    syncError: draft.syncError,
+  });
+
+  const encryptedData = await encryptSensitivePayload(payloadToEncrypt, key);
+
+  return {
+    id: draft.id,
+    organizationId: draft.organizationId,
+    createdAt: draft.createdAt,
+    syncStatus: draft.syncStatus,
+    encryptedData,
+    isEncrypted: true,
+  };
+}
+
+/**
+ * Decrypts an encrypted offline invoice draft from IndexedDB back to plaintext representation.
+ */
+export async function decryptInvoiceDraft(
+  cachedRecord: EncryptedOfflineInvoiceDraft,
+  key: CryptoKey
+): Promise<OfflineInvoiceDraft> {
+  const decryptedString = await decryptSensitivePayload(
+    cachedRecord.encryptedData,
+    key
+  );
+  const data = JSON.parse(decryptedString);
+
+  return {
+    id: cachedRecord.id,
+    organizationId: cachedRecord.organizationId,
+    createdAt: cachedRecord.createdAt,
+    syncStatus: cachedRecord.syncStatus,
+    customerId: data.customerId,
+    customerName: data.customerName,
+    issueDate: data.issueDate,
+    dueDate: data.dueDate,
+    currency: data.currency,
+    lines: data.lines || [],
+    notes: data.notes,
+    syncError: data.syncError,
   };
 }

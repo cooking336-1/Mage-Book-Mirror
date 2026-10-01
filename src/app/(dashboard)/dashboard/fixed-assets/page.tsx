@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useMode } from "@/contexts/ModeContext";
 
 export default function FixedAssetsPage() {
   const { mode } = useMode();
-  const title = mode === "simple" ? "Equipment & Property" : "Fixed Asset Register";
+  const title = mode === "simple" ? "Things My Business Owns" : "Fixed Assets";
   const subtitle =
     mode === "simple"
-      ? "Track the equipment and property your business owns."
-      : "Manage fixed assets, depreciation, and disposals.";
+      ? "Equipment, vehicles, computers, and furniture owned by your business."
+      : "Fixed asset register, depreciation schedules, and book values.";
 
   return (
     <div className="p-8 flex flex-col gap-6 pb-0">
@@ -22,7 +21,7 @@ export default function FixedAssetsPage() {
           type="button"
           className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-sm font-medium px-4 h-10 rounded-lg shadow-sm transition-colors"
         >
-          {mode === "simple" ? "+ Add Equipment" : "+ Register Asset"}
+          {mode === "simple" ? "+ Add Business Property" : "+ Add Asset"}
         </button>
       </div>
 
@@ -30,19 +29,10 @@ export default function FixedAssetsPage() {
         <p className="font-semibold text-[#141b2b] text-lg mb-1">No assets registered</p>
         <p className="text-sm">
           {mode === "simple"
-            ? "Add equipment and property your business owns."
-            : "Register fixed assets to track their value and depreciation."}
+            ? "Record vehicles, computers, machinery, and tools here."
+            : "Asset records and depreciation schedules will appear here."}
         </p>
       </div>
-
-      <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">
-        <p>© 2026 Mage Books. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="#" className="hover:underline">Privacy Policy</Link>
-          <Link href="#" className="hover:underline">Terms of Service</Link>
-          <Link href="#" className="hover:underline">Help Center</Link>
-        </div>
-      </footer>
     </div>
   );
 }

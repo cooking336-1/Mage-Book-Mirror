@@ -158,6 +158,7 @@ class ReconciliationService:
         return "1015"
 
     @classmethod
+    @transaction.atomic
     def reconcile_payment(
         cls,
         event: NormalizedPaymentEvent,

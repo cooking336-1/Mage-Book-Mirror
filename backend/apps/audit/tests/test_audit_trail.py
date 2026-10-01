@@ -21,7 +21,7 @@ import hashlib
 from datetime import timedelta
 
 from django.db import Error as DatabaseError
-from django.db import connection
+from django.db import connection, transaction
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -243,16 +243,18 @@ class TestAuditTrailImmutabilityAndStorage(TestCase):
 
         # 1. Attempt raw SQL UPDATE (triggers BEFORE UPDATE)
         with self.assertRaises(DatabaseError):
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE audit_logs SET action = 'MALICIOUS_UPDATE' "
-                    "WHERE action = 'RAW_SQL_TARGET'"
-                )
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE audit_logs SET action = 'MALICIOUS_UPDATE' "
+                        "WHERE action = 'RAW_SQL_TARGET'"
+                    )
 
         # 2. Attempt raw SQL DELETE (triggers BEFORE DELETE)
         with self.assertRaises(DatabaseError):
-            with connection.cursor() as cursor:
-                cursor.execute("DELETE FROM audit_logs WHERE action = 'RAW_SQL_TARGET'")
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM audit_logs WHERE action = 'RAW_SQL_TARGET'")
 
         # Verify record was not modified or deleted
         audit.refresh_from_db()

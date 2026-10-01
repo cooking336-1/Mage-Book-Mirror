@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMode } from "@/contexts/ModeContext";
 
 export default function AccountsPayablePage() {
@@ -8,8 +7,8 @@ export default function AccountsPayablePage() {
   const title = mode === "simple" ? "Money I Owe" : "Accounts Payable";
   const subtitle =
     mode === "simple"
-      ? "Bills and amounts you still need to pay."
-      : "Outstanding supplier bills and payable balances.";
+      ? "Bills and supplier invoices you need to pay."
+      : "Manage outstanding vendor bills, due dates, and supplier balances.";
 
   return (
     <div className="p-8 flex flex-col gap-6 pb-0">
@@ -22,19 +21,20 @@ export default function AccountsPayablePage() {
           type="button"
           className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-sm font-medium px-4 h-10 rounded-lg shadow-sm transition-colors"
         >
-          + Record Bill
+          {mode === "simple" ? "+ Add Bill to Pay" : "+ New Bill"}
         </button>
       </div>
 
       <div className="grid grid-cols-3 gap-6">
         {[
-          { label: mode === "simple" ? "Total I Owe" : "Total Payable", value: "GH¢ 23,000.00", color: "text-[#dc2626]" },
-          { label: "Overdue", value: "GH¢ 5,000.00", color: "text-[#ba1a1a]" },
-          { label: "Due This Month", value: "GH¢ 9,500.00", color: "text-[#141b2b]" },
-        ].map((card) => (
-          <div key={card.label} className="bg-white border border-[#c3c6d7] rounded-xl p-6">
-            <p className="text-sm font-semibold text-[#434655] uppercase tracking-[0.35px]">{card.label}</p>
-            <p className={`font-black text-[20px] mt-3 ${card.color}`}>{card.value}</p>
+          { label: mode === "simple" ? "Total Owed" : "Total Outstanding", val: "GH¢ 0.00", sub: "0 unpaid bills" },
+          { label: mode === "simple" ? "Past Due" : "Overdue Bills", val: "GH¢ 0.00", sub: "Requires attention" },
+          { label: "Due This Month", val: "GH¢ 0.00", sub: "Upcoming payments" },
+        ].map((c) => (
+          <div key={c.label} className="bg-white border border-[#c3c6d7] rounded-xl p-6 shadow-xs">
+            <p className="text-xs font-semibold text-[#434655] uppercase tracking-wide">{c.label}</p>
+            <p className="text-2xl font-bold text-[#141b2b] mt-1">{c.val}</p>
+            <p className="text-xs text-[#64748b] mt-1">{c.sub}</p>
           </div>
         ))}
       </div>
@@ -43,15 +43,6 @@ export default function AccountsPayablePage() {
         <p className="font-semibold text-[#141b2b] text-lg mb-1">No outstanding bills</p>
         <p className="text-sm">Bills received from suppliers will appear here.</p>
       </div>
-
-      <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">
-        <p>© 2026 Mage Books. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="#" className="hover:underline">Privacy Policy</Link>
-          <Link href="#" className="hover:underline">Terms of Service</Link>
-          <Link href="#" className="hover:underline">Help Center</Link>
-        </div>
-      </footer>
     </div>
   );
 }

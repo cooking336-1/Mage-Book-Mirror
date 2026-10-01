@@ -85,34 +85,29 @@ class InvoicingService:
     """Core domain service for Invoice creation, tax breakdown, and General Ledger posting."""
 
     @classmethod
-    def create_and_post_invoice(
+    def _validate_customer(
         cls,
         organization: Organization,
-        user: Any,
-        data: dict[str, Any],
-    ) -> Invoice:
-        """Compiles, calculates, freezes snapshots, and atomically posts an invoice.
-
-        Parameters:
-            organization: Authenticated tenant organization.
-            user: Initiating user.
-            data: Validated dictionary from InvoiceCreateSerializer.
-
-        Returns:
-            The created Invoice instance.
-        """
-        customer_id = data["customer_id"]
+        customer_id: Any,
+    ) -> Contact:
+        """Validates that customer exists and belongs to the given tenant."""
         customer = Contact.objects.filter(id=customer_id, organization=organization).first()
         if not customer:
             raise ValidationError(
                 {"customer_id": "Customer does not exist or does not belong to this organization."}
             )
+        return customer
 
-        lines_data = data["lines"]
+    @classmethod
+    def _compile_tax_lines(
+        cls,
+        organization: Organization,
+        lines_data: list[dict[str, Any]],
+    ) -> tuple[Any, TaxBreakdown]:
+        """Calculates multi-line taxes using the Act 1151 TaxCalculationEngine."""
         if not lines_data:
             raise ValidationError({"lines": "At least one invoice line item is required."})
 
-        # 1. Multi-line tax calculation via Act 1151 TaxCalculationEngine
         tax_lines_input: list[LineTaxItem] = []
         for idx, line in enumerate(lines_data):
             qty = Decimal(str(line["quantity"]))
@@ -145,96 +140,162 @@ class InvoicingService:
             gross_amount=tax_summary.total_gross,
             effective_rate=Decimal("0.2000"),
         )
+        return tax_summary, aggregate_breakdown
 
-        action = data.get("action", "issue")
+    @classmethod
+    def _persist_invoice(
+        cls,
+        organization: Organization,
+        customer: Contact,
+        data: dict[str, Any],
+        invoice_number: str,
+        aggregate_breakdown: TaxBreakdown,
+    ) -> Invoice:
+        """Instantiates and saves the parent Invoice record with frozen snapshot."""
         currency = data.get("currency", "GHS")
         issue_date = data["issue_date"]
 
+        invoice = Invoice(
+            organization=organization,
+            customer=customer,
+            invoice_number=invoice_number,
+            issue_date=issue_date,
+            due_date=data["due_date"],
+            currency=currency,
+            subtotal_amount=aggregate_breakdown.taxable_amount,
+            vat_amount=aggregate_breakdown.vat_amount,
+            nhil_amount=aggregate_breakdown.nhil_amount,
+            getfund_amount=aggregate_breakdown.getfund_amount,
+            covid_levy_amount=Decimal("0.0000"),
+            total_amount=aggregate_breakdown.gross_amount,
+            paid_amount=Decimal("0.0000"),
+            status=InvoiceStatusChoices.DRAFT,
+        )
+        invoice.freeze_customer_snapshot(force=True)
+        invoice.save()
+        return invoice
+
+    @classmethod
+    def _persist_invoice_lines(
+        cls,
+        organization: Organization,
+        invoice: Invoice,
+        lines_data: list[dict[str, Any]],
+        tax_summary: Any,
+    ) -> list[InvoiceLine]:
+        """Creates and links all child InvoiceLine item rows."""
+        created_lines: list[InvoiceLine] = []
+        for idx, line in enumerate(lines_data):
+            line_breakdown = tax_summary.line_breakdowns[idx]
+            account_id = line.get("account_id")
+            line_account = None
+
+            if account_id:
+                line_account = ChartOfAccounts.objects.filter(
+                    id=account_id, organization=organization
+                ).first()
+                if not line_account:
+                    raise ValidationError(
+                        {"account_id": f"Account {account_id} not found in this organization."}
+                    )
+
+            inv_line = InvoiceLine(
+                organization=organization,
+                invoice=invoice,
+                description=line["description"],
+                quantity=Decimal(str(line["quantity"])),
+                unit_price=Decimal(str(line["unit_price"])),
+                vat_rate=(
+                    STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000")
+                ),
+                nhil_rate=(
+                    STATUTORY_NHIL_RATE if line_breakdown.nhil_amount > 0 else Decimal("0.0000")
+                ),
+                getfund_rate=(
+                    STATUTORY_GETFUND_RATE
+                    if line_breakdown.getfund_amount > 0
+                    else Decimal("0.0000")
+                ),
+                vat_amount=line_breakdown.vat_amount,
+                nhil_amount=line_breakdown.nhil_amount,
+                getfund_amount=line_breakdown.getfund_amount,
+                line_total=line_breakdown.gross_amount,
+                account=line_account,
+            )
+            inv_line.save()
+            created_lines.append(inv_line)
+        return created_lines
+
+    @classmethod
+    def _post_and_enqueue_issue(
+        cls,
+        organization: Organization,
+        invoice: Invoice,
+        aggregate_breakdown: TaxBreakdown,
+        user: Any,
+    ) -> None:
+        """Posts invoice journal entries to the GL and enqueues GRA clearance."""
+        cls._post_invoice_to_ledger(
+            organization=organization,
+            invoice=invoice,
+            tax_breakdown=aggregate_breakdown,
+            user=user,
+        )
+        invoice.status = InvoiceStatusChoices.PENDING_GRA
+        invoice.save(update_fields=["status"])
+
+        invoice_id = invoice.id
+        transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
+
+    @classmethod
+    def create_and_post_invoice(
+        cls,
+        organization: Organization,
+        user: Any,
+        data: dict[str, Any],
+    ) -> Invoice:
+        """Compiles, calculates, freezes snapshots, and atomically posts an invoice.
+
+        Parameters:
+            organization: Authenticated tenant organization.
+            user: Initiating user.
+            data: Validated dictionary from InvoiceCreateSerializer.
+
+        Returns:
+            The created Invoice instance.
+        """
+        customer = cls._validate_customer(organization, data["customer_id"])
+        tax_summary, aggregate_breakdown = cls._compile_tax_lines(organization, data["lines"])
+
+        action = data.get("action", "issue")
+        issue_date = data["issue_date"]
+
         with transaction.atomic():
-            # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX) via Row-Locked Sequence
             invoice_number = cls._generate_sequential_invoice_number(
                 organization=organization,
                 issue_date=issue_date,
             )
-
-            # 3. Instantiate and persist Invoice inside scoped atomic block
-            invoice = Invoice(
+            invoice = cls._persist_invoice(
                 organization=organization,
                 customer=customer,
+                data=data,
                 invoice_number=invoice_number,
-                issue_date=issue_date,
-                due_date=data["due_date"],
-                currency=currency,
-                subtotal_amount=aggregate_breakdown.taxable_amount,
-                vat_amount=aggregate_breakdown.vat_amount,
-                nhil_amount=aggregate_breakdown.nhil_amount,
-                getfund_amount=aggregate_breakdown.getfund_amount,
-                covid_levy_amount=Decimal("0.0000"),
-                total_amount=aggregate_breakdown.gross_amount,
-                paid_amount=Decimal("0.0000"),
-                status=InvoiceStatusChoices.DRAFT,
+                aggregate_breakdown=aggregate_breakdown,
+            )
+            cls._persist_invoice_lines(
+                organization=organization,
+                invoice=invoice,
+                lines_data=data["lines"],
+                tax_summary=tax_summary,
             )
 
-            # 4. Freeze customer point-in-time legal snapshot
-            invoice.freeze_customer_snapshot(force=True)
-            invoice.save()
-
-            # 5. Create InvoiceLine items
-            created_lines: list[InvoiceLine] = []
-            for idx, line in enumerate(lines_data):
-                line_breakdown = tax_summary.line_breakdowns[idx]
-                account_id = line.get("account_id")
-                line_account = None
-
-                if account_id:
-                    line_account = ChartOfAccounts.objects.filter(
-                        id=account_id, organization=organization
-                    ).first()
-                    if not line_account:
-                        raise ValidationError(
-                            {"account_id": f"Account {account_id} not found in this organization."}
-                        )
-
-                inv_line = InvoiceLine(
-                    organization=organization,
-                    invoice=invoice,
-                    description=line["description"],
-                    quantity=Decimal(str(line["quantity"])),
-                    unit_price=Decimal(str(line["unit_price"])),
-                    vat_rate=(
-                        STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000")
-                    ),
-                    nhil_rate=(
-                        STATUTORY_NHIL_RATE if line_breakdown.nhil_amount > 0 else Decimal("0.0000")
-                    ),
-                    getfund_rate=(
-                        STATUTORY_GETFUND_RATE
-                        if line_breakdown.getfund_amount > 0
-                        else Decimal("0.0000")
-                    ),
-                    vat_amount=line_breakdown.vat_amount,
-                    nhil_amount=line_breakdown.nhil_amount,
-                    getfund_amount=line_breakdown.getfund_amount,
-                    line_total=line_breakdown.gross_amount,
-                    account=line_account,
-                )
-                inv_line.save()
-                created_lines.append(inv_line)
-
-            # 6. Post to General Ledger if action is 'issue'
             if action == "issue":
-                cls._post_invoice_to_ledger(
+                cls._post_and_enqueue_issue(
                     organization=organization,
                     invoice=invoice,
-                    tax_breakdown=aggregate_breakdown,
+                    aggregate_breakdown=aggregate_breakdown,
                     user=user,
                 )
-                invoice.status = InvoiceStatusChoices.PENDING_GRA
-                invoice.save(update_fields=["status"])
-
-                # 7. Enqueue asynchronous GRA clearance strictly after transaction commit
-                invoice_id = invoice.id
-                transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
 
         return invoice
 

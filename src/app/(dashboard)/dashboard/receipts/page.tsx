@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 export default function ReceiptsPage() {
   return (
     <div className="p-8 flex flex-col gap-6 pb-0">
@@ -20,15 +18,6 @@ export default function ReceiptsPage() {
         <p className="font-semibold text-[#141b2b] text-lg mb-1">No receipts uploaded</p>
         <p className="text-sm">Upload and manage your receipts here.</p>
       </div>
-
-      <footer className="border-t border-[#c3c6d7] mt-4 py-6 flex items-center justify-between text-[12px] font-medium text-[#434655] tracking-[0.24px]">
-        <p>© 2026 Mage Books. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="#" className="hover:underline">Privacy Policy</Link>
-          <Link href="#" className="hover:underline">Terms of Service</Link>
-          <Link href="#" className="hover:underline">Help Center</Link>
-        </div>
-      </footer>
     </div>
   );
 }

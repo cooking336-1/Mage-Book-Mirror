@@ -4,7 +4,7 @@ from django.urls import path
 
 from apps.tenancy.views import (
     OrganizationCreateAPIView,
-    OrganizationDeactivationAPIView,
+    OrganizationCurrentDetailAPIView,
     OrganizationMemberDetailAPIView,
     OrganizationMemberListCreateAPIView,
     OrganizationSettlementAPIView,
@@ -30,10 +30,10 @@ urlpatterns = [
         OrganizationSettlementAPIView.as_view(),
         name="organization-settlement",
     ),
-    # Sole Destroyer Rule (Soft-Archival under Act 896)
+    # Current Organization Details, Mode Sync, and Sole Destroyer Rule
     path(
         "organizations/current/",
-        OrganizationDeactivationAPIView.as_view(),
-        name="organization-deactivate",
+        OrganizationCurrentDetailAPIView.as_view(),
+        name="organization-current-detail",
     ),
 ]

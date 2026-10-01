@@ -12,19 +12,24 @@ class CoreBootTestCase(SimpleTestCase):
         self.assertTrue(settings.IS_TESTING)
 
     def test_database_is_sqlite_in_memory(self):
-        """Asserts that automated tests run exclusively against in-memory SQLite."""
+        """Asserts tests run against in-memory SQLite (or PostgreSQL in CI)."""
         db_config = settings.DATABASES["default"]
-        self.assertEqual(db_config["ENGINE"], "django.db.backends.sqlite3")
-        db_name = db_config["NAME"]
-        self.assertTrue(
-            db_name == ":memory:"
-            or (
-                isinstance(db_name, str)
-                and db_name.startswith("file:")
-                and "mode=memory" in db_name
-            ),
-            f"Expected in-memory SQLite database, got {db_config['NAME']}",
-        )
+        use_postgres = getattr(settings, "USE_POSTGRES_TESTS", False)
+
+        if use_postgres:
+            self.assertEqual(db_config["ENGINE"], "django.db.backends.postgresql")
+        else:
+            self.assertEqual(db_config["ENGINE"], "django.db.backends.sqlite3")
+            db_name = db_config["NAME"]
+            self.assertTrue(
+                db_name == ":memory:"
+                or (
+                    isinstance(db_name, str)
+                    and db_name.startswith("file:")
+                    and "mode=memory" in db_name
+                ),
+                f"Expected in-memory SQLite database, got {db_config['NAME']}",
+            )
 
     def test_all_domain_apps_registered(self):
         """Asserts that all nine core domain apps are registered in INSTALLED_APPS."""

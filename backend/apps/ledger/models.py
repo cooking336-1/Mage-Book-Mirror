@@ -602,3 +602,64 @@ class JournalLine(BaseTenantModel):
         if self.journal_entry_id and self.journal_entry.is_posted:
             raise ValidationError("Cannot delete lines belonging to a posted journal entry.")
         return super().delete(*args, **kwargs)
+
+
+class AccountSnapshot(BaseTenantModel):
+    """Monthly materialized rollup snapshot for fast balance reporting at scale.
+
+    Stores the cumulative debit, credit, and net closing balances for an account
+    at the end of a closed fiscal month.
+    """
+
+    account = models.ForeignKey(
+        ChartOfAccounts,
+        on_delete=models.CASCADE,
+        related_name="snapshots",
+        help_text="The Chart of Accounts record being summarized.",
+    )
+    period_end = models.DateField(
+        help_text="The ending date of the fiscal monthly period (e.g. 2026-01-31).",
+    )
+    total_debits = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Cumulative debit volume as of period end.",
+    )
+    total_credits = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Cumulative credit volume as of period end.",
+    )
+    closing_balance = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        default=Decimal("0.0000"),
+        help_text="Net closing balance adhering to the account's normal balance direction.",
+    )
+
+    class Meta(BaseTenantModel.Meta):
+        verbose_name = "Account Snapshot"
+        verbose_name_plural = "Account Snapshots"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "account", "period_end"],
+                name="uq_account_snapshot_org_acc_period",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "account", "period_end"],
+                name="idx_acc_snap_org_acc_per",
+            ),
+            models.Index(
+                fields=["organization", "period_end"],
+                name="idx_acc_snap_org_per",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.account.account_code} Snapshot as of {self.period_end}: {self.closing_balance}"
+        )
