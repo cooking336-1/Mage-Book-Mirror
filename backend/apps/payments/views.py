@@ -12,19 +12,23 @@ import logging
 from typing import Any
 
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import AuditTrail
 from apps.payments.gateways import (
     BasePaymentGateway,
     HubtelGateway,
     PaystackGateway,
     get_payment_gateway,
 )
-from apps.payments.models import PaymentWebhookLog, WebhookStatusChoices
+from apps.payments.models import Payment, PaymentWebhookLog, WebhookStatusChoices
+from apps.payments.serializers import PaymentSerializer
 from apps.payments.services.idempotency import IdempotencyService
+from apps.tenancy.middleware import get_current_tenant
+from apps.tenancy.permissions import IsAuditorReadOnly
 
 logger = logging.getLogger(__name__)
 
@@ -272,3 +276,64 @@ class HubtelWebhookView(BaseWebhookReceiverView):
 
     def get_gateway(self, request: Request) -> BasePaymentGateway:
         return HubtelGateway()
+
+
+class PaymentListCreateAPIView(APIView):
+    """Collection resource for tenant payment transactions: GET & POST /api/v1/payments/"""
+
+    permission_classes = [IsAuthenticated, IsAuditorReadOnly]
+
+    def get(self, request: Request) -> Response:
+        """Lists payments (receipts and disbursements) for active tenant."""
+        tenant = getattr(request, "tenant", None) or get_current_tenant()
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        queryset = (
+            Payment.objects.filter(organization=tenant)
+            .select_related("customer", "invoice")
+            .order_by("-transaction_date", "-created_at")
+        )
+
+        tx_type = request.query_params.get("transaction_type")
+        if tx_type:
+            queryset = queryset.filter(transaction_type=tx_type)
+
+        payment_status = request.query_params.get("status")
+        if payment_status:
+            queryset = queryset.filter(status=payment_status)
+
+        serializer = PaymentSerializer(queryset[:100], many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        """Records a payment receipt or disbursement."""
+        tenant = getattr(request, "tenant", None) or get_current_tenant()
+        if not tenant:
+            return Response(
+                {"detail": "No active tenant organization context found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = PaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save(organization=tenant)
+
+        AuditTrail.objects.create(
+            organization=tenant,
+            user=request.user,
+            action="PAYMENT_RECORDED",
+            entity_type="Payment",
+            entity_id=str(payment.id),
+            metadata={
+                "amount": str(payment.amount),
+                "transaction_type": payment.transaction_type,
+                "payment_method": payment.payment_method,
+            },
+        )
+
+        return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
+
