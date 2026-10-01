@@ -61,3 +61,46 @@ class TestVerifyPasswordEndpoint(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestPasswordResetRequestEndpoint(TestCase):
+    """Verifies POST /api/v1/auth/password-reset/ endpoint."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="resetme@magebooks.com",
+            password="StrongPassword123!",
+            first_name="Abena",
+            last_name="Mansah",
+        )
+
+    def test_password_reset_existing_user(self) -> None:
+        """Submitting email of active user returns HTTP 200."""
+        response = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": "resetme@magebooks.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("detail", response.data)
+
+    def test_password_reset_nonexistent_user_returns_200_anti_enumeration(self) -> None:
+        """Submitting non-existent email still returns HTTP 200 to prevent account enumeration."""
+        response = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": "unknown_random_user_999@magebooks.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_password_reset_invalid_email_format(self) -> None:
+        """Submitting invalid email returns HTTP 400."""
+        response = self.client.post(
+            "/api/v1/auth/password-reset/",
+            {"email": "not-an-email"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+
