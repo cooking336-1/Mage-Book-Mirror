@@ -19,6 +19,8 @@ dependencies = [
     "httpx>=0.28.1",
     "cryptography>=50.0.1",
     "pyjwt>=2.15.0",
+    "gunicorn>=26.2.0",
+    "whitenoise[brotli]>=6.12.0",
 ]
 
 [dependency-groups]
