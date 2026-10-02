@@ -1,0 +1,9 @@
+# Gitleaks configuration for Mage Books SAAS
+title = "Mage Books Gitleaks Config"
+
+[allowlist]
+description = "Allowlist Django migration definitions and mock test secrets"
+paths = [
+    '''(^|/)migrations/''',
+    '''(^|/)tests/''',
+]

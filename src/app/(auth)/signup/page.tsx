@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/Logo";
+import apiClient from "@/lib/apiClient";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -12,11 +13,67 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: wire up auth logic
-    router.push("/onboarding");
+    setErrorMessage(null);
+
+    if (!email.trim() || !password) {
+      setErrorMessage("Please fill in all required fields.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMessage("Passwords do not match.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setErrorMessage("Password must be at least 8 characters long.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // 1. Fetch CSRF token cookie
+      try {
+        await apiClient.get("/api/v1/auth/csrf/");
+      } catch {
+        // Continue
+      }
+
+      // 2. Register account and establish JWT cookie session
+      await apiClient.post("/api/v1/auth/register/", {
+        email: email.trim(),
+        password,
+      });
+
+      // 3. Navigate to onboarding wizard
+      router.push("/onboarding");
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: {
+          data?: {
+            email?: string[];
+            password?: string[];
+            detail?: string;
+            non_field_errors?: string[];
+          };
+        };
+      };
+      const detail =
+        axiosErr.response?.data?.email?.[0] ||
+        axiosErr.response?.data?.password?.[0] ||
+        axiosErr.response?.data?.detail ||
+        axiosErr.response?.data?.non_field_errors?.[0] ||
+        "Unable to create account. Please try again.";
+      setErrorMessage(detail);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const eyeIcon = (visible: boolean) =>
@@ -51,6 +108,12 @@ export default function SignUpPage() {
             </p>
           </div>
 
+          {errorMessage && (
+            <div className="mb-6 p-4 rounded-lg bg-[#fef2f2] border border-[#fecaca] text-[#dc2626] text-sm font-medium">
+              {errorMessage}
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email/Phone */}
@@ -77,7 +140,7 @@ export default function SignUpPage() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  placeholder="Enter your password (min. 8 characters)"
                   className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent"
                 />
                 <button
@@ -119,9 +182,10 @@ export default function SignUpPage() {
             <div className="flex justify-center pt-2">
               <button
                 type="submit"
-                className="flex items-center gap-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-medium text-base px-10 h-12 rounded-lg shadow-md transition-colors"
+                disabled={isLoading}
+                className="flex items-center gap-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 text-white font-medium text-base px-10 h-12 rounded-lg shadow-md transition-colors"
               >
-                Continue
+                {isLoading ? "Creating Account..." : "Continue"}
               </button>
             </div>
           </form>

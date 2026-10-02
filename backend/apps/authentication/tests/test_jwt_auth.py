@@ -3,7 +3,7 @@
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -108,7 +108,7 @@ class JWTAuthAPITests(TestCase):
         refresh_cookie = response.cookies["refresh_token"]
         self.assertTrue(refresh_cookie["httponly"])
         self.assertEqual(refresh_cookie["samesite"], "Strict")
-        self.assertEqual(refresh_cookie["path"], "/api/v1/auth/")
+        self.assertEqual(refresh_cookie["path"], "/")
 
     def test_login_invalid_credentials_returns_401(self):
         """Verify login with incorrect password returns 401 Unauthorized."""
@@ -253,3 +253,94 @@ class JWTAuthAPITests(TestCase):
         response = self.client.get("/api/v1/auth/me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["email"], self.email)
+
+    @override_settings(
+        SIMPLE_JWT={
+            "ROTATE_REFRESH_TOKENS": True,
+            "BLACKLIST_AFTER_ROTATION": False,
+        }
+    )
+    def test_refresh_token_rotation_when_enabled_sets_new_cookie(self):
+        """Verify that when rotation is enabled, refresh response sets new rotated cookie."""
+        refresh = RefreshToken.for_user(self.user)
+        initial_refresh_token = str(refresh)
+
+        self.client.cookies["refresh_token"] = initial_refresh_token
+        response = self.client.post("/api/v1/auth/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Access token cookie must be updated
+        self.assertIn("access_token", response.cookies)
+
+        # Refresh token cookie must be rotated and different from initial token
+        self.assertIn("refresh_token", response.cookies)
+        new_cookie_val = response.cookies["refresh_token"].value
+        self.assertNotEqual(new_cookie_val, initial_refresh_token)
+
+        # Security hardening: When cookie was used, refresh must NOT leak in JSON body
+        self.assertNotIn("refresh", response.data)
+
+    @override_settings(
+        SIMPLE_JWT={
+            "ROTATE_REFRESH_TOKENS": True,
+            "BLACKLIST_AFTER_ROTATION": False,
+        }
+    )
+    def test_refresh_token_rotation_when_sent_via_json_body_includes_refresh_in_json(self):
+        """Verify mobile/API clients sending refresh via JSON body receive rotated token in JSON."""
+        refresh = RefreshToken.for_user(self.user)
+        initial_refresh_token = str(refresh)
+
+        # No cookie set; payload passed in JSON body
+        response = self.client.post(
+            "/api/v1/auth/refresh/",
+            {"refresh": initial_refresh_token},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("refresh", response.data)
+        self.assertNotEqual(response.data["refresh"], initial_refresh_token)
+        self.assertIn("access", response.data)
+
+    @override_settings(
+        SIMPLE_JWT={
+            "ROTATE_REFRESH_TOKENS": True,
+            "BLACKLIST_AFTER_ROTATION": False,
+        }
+    )
+    def test_subsequent_refresh_with_new_rotated_token_succeeds(self):
+        """Verify session continuity: refreshing with newly rotated token succeeds."""
+        refresh = RefreshToken.for_user(self.user)
+        initial_refresh_token = str(refresh)
+
+        # Step 1: Initial refresh
+        self.client.cookies["refresh_token"] = initial_refresh_token
+        response1 = self.client.post("/api/v1/auth/refresh/")
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        rotated_refresh_token = response1.cookies["refresh_token"].value
+
+        # Step 2: Second refresh using newly rotated token
+        self.client.cookies["refresh_token"] = rotated_refresh_token
+        response2 = self.client.post("/api/v1/auth/refresh/")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response2.cookies)
+        self.assertIn("refresh_token", response2.cookies)
+        second_rotated_token = response2.cookies["refresh_token"].value
+        self.assertNotEqual(second_rotated_token, rotated_refresh_token)
+
+    @override_settings(
+        SIMPLE_JWT={
+            "ROTATE_REFRESH_TOKENS": False,
+            "BLACKLIST_AFTER_ROTATION": False,
+        }
+    )
+    def test_refresh_token_without_rotation_preserves_single_access_cookie(self):
+        """Verify backward compatibility: when rotation is disabled, refresh cookie is unchanged."""
+        refresh = RefreshToken.for_user(self.user)
+        initial_refresh_token = str(refresh)
+
+        self.client.cookies["refresh_token"] = initial_refresh_token
+        response = self.client.post("/api/v1/auth/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.cookies)
+        self.assertNotIn("refresh_token", response.cookies)

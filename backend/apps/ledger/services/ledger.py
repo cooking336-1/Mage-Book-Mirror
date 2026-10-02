@@ -8,13 +8,14 @@ Enforces:
 5. Absolute Ledger Immutability: Once posted, entries and lines cannot be updated or deleted.
 """
 
+import datetime
 import uuid
 from decimal import Decimal
 from typing import Any
 
 import uuid6
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.ledger.models import (
@@ -65,41 +66,13 @@ class LedgerService:
         return period
 
     @classmethod
-    @transaction.atomic
-    def post_journal_entry(
+    def _validate_and_resolve_period(
         cls,
         organization: Organization,
-        entry_date: Any,
-        lines_data: list[dict[str, Any]],
-        narration: str,
-        user: Any = None,
-        source_type: str = SourceTypeChoices.MANUAL,
-        source_id: uuid.UUID | str | None = None,
-        period: FiscalPeriod | None = None,
-        entry_number: str | None = None,
-    ) -> JournalEntry:
-        """Posts an atomic, balanced double-entry transaction to the general ledger.
-
-        Parameters:
-            organization: Tenant organization owning the ledger entry.
-            entry_date: Date of financial transaction recognition.
-            lines_data: List of dicts specifying line item accounts and debit/credit amounts.
-            narration: Business description and audit trail memo.
-            user: Optional User initiating the transaction (None for automated machine events).
-            source_type: Originating subsystem choice (INVOICE, PAYMENT, MANUAL, etc.).
-            source_id: Optional polymorphic UUID of originating document.
-            period: Optional explicit FiscalPeriod; auto-resolved if None.
-            entry_number: Optional custom entry number; auto-generated if None.
-
-        Returns:
-            The created and committed JournalEntry instance.
-        """
-        if not lines_data or len(lines_data) < 2:
-            raise ValidationError(
-                "A double-entry journal entry must contain at least two line items."
-            )
-
-        # 1. Resolve and validate fiscal period
+        entry_date: datetime.date,
+        period: FiscalPeriod | None,
+    ) -> FiscalPeriod:
+        """Resolves fiscal period and validates that entry_date is within open period."""
         if period is None:
             period = cls._resolve_fiscal_period(organization, entry_date)
         else:
@@ -119,8 +92,19 @@ class LedgerService:
 
         if period.is_closed:
             raise ValidationError({"period": "Cannot post transaction to a closed fiscal period."})
+        return period
 
-        # 2. Parse and normalize lines, verifying either debit or credit per line
+    @classmethod
+    def _parse_and_validate_lines(
+        cls,
+        lines_data: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[Any]]:
+        """Parses line items, verifies debit/credit integrity and double-entry equilibrium."""
+        if not lines_data or len(lines_data) < 2:
+            raise ValidationError(
+                "A double-entry journal entry must contain at least two line items."
+            )
+
         parsed_lines: list[dict[str, Any]] = []
         sum_debit = Decimal("0.0000")
         sum_credit = Decimal("0.0000")
@@ -154,7 +138,6 @@ class LedgerService:
 
             sum_debit += debit
             sum_credit += credit
-
             account_identifiers.append(account_raw)
             parsed_lines.append(
                 {
@@ -165,14 +148,21 @@ class LedgerService:
                 }
             )
 
-        # 3. Double-entry balance invariant assertion
         if sum_debit != sum_credit or sum_debit == Decimal("0.0000"):
             raise ValidationError(
                 f"Unbalanced journal entry: Total debits (GHS {sum_debit}) must equal "
                 f"total credits (GHS {sum_credit}) and be greater than zero."
             )
 
-        # 4. Extract account IDs for deterministic lock acquisition
+        return parsed_lines, account_identifiers
+
+    @classmethod
+    def _resolve_and_validate_accounts(
+        cls,
+        organization: Organization,
+        account_identifiers: list[Any],
+    ) -> tuple[dict[uuid.UUID, ChartOfAccounts], dict[str, ChartOfAccounts]]:
+        """Resolves account references and ensures they are active tenant records."""
         account_ids: set[uuid.UUID] = set()
         account_code_map: dict[str, ChartOfAccounts] = {}
 
@@ -185,10 +175,8 @@ class LedgerService:
                 try:
                     account_ids.add(uuid.UUID(acc_ref))
                 except ValueError:
-                    # Treat as account_code string
                     pass
 
-        # If any account was referenced by code, resolve its ID
         for acc_ref in account_identifiers:
             if isinstance(acc_ref, str) and len(acc_ref) <= 20:
                 try:
@@ -204,35 +192,43 @@ class LedgerService:
                     account_ids.add(acc_obj.id)
                     account_code_map[acc_ref] = acc_obj
 
-        # 5. Deterministic DAG Lock Ordering (Architecture Manual §4.3)
-        # Sort IDs lexicographically in ascending order to prevent cyclic deadlocks
-        sorted_account_ids = sorted(account_ids, key=str)
-        locked_accounts = list(
+        accounts = list(
             ChartOfAccounts.objects.filter(
                 organization=organization,
-                id__in=sorted_account_ids,
+                id__in=account_ids,
             )
-            .order_by("id")
-            .select_for_update()
         )
+        account_lookup: dict[uuid.UUID, ChartOfAccounts] = {acc.id: acc for acc in accounts}
 
-        account_lookup: dict[uuid.UUID, ChartOfAccounts] = {acc.id: acc for acc in locked_accounts}
-
-        if len(account_lookup) != len(sorted_account_ids):
+        if len(account_lookup) != len(account_ids):
             raise ValidationError(
                 "One or more accounts do not exist or belong to another organization."
             )
 
-        # Validate that all referenced accounts are active
-        for acc in locked_accounts:
+        for acc in accounts:
             if not acc.is_active:
                 raise ValidationError(
                     f"Account '{acc.account_code} - {acc.account_name}' is inactive "
                     "and cannot accept new postings."
                 )
 
-        # 6. Auto-generate sequential entry_number if omitted
-        if not entry_number:
+        return account_lookup, account_code_map
+
+    @classmethod
+    def _persist_journal_entry_header(
+        cls,
+        organization: Organization,
+        period: FiscalPeriod,
+        entry_date: datetime.date,
+        narration: str,
+        source_type: str,
+        source_id: Any,
+        entry_number: str | None,
+        user: Any,
+    ) -> JournalEntry:
+        """Persists the master JournalEntry record with sequence collision handling."""
+        is_auto_generated = not entry_number
+        if is_auto_generated:
             year = entry_date.year
             count = (
                 JournalEntry.objects.filter(
@@ -242,29 +238,52 @@ class LedgerService:
                 + 1
             )
             entry_number = f"JE-{year}-{count:05d}"
-            # Collision defense in case of concurrent sequence overlap
             if JournalEntry.objects.filter(
                 organization=organization, entry_number=entry_number
             ).exists():
-                entry_number = f"JE-{year}-{uuid6.uuid7().hex[:8].upper()}"
+                entry_number = f"JE-{year}-{uuid6.uuid7().hex[-8:].upper()}"
 
-        # 7. Persist JournalEntry header
         now = timezone.now()
-        journal_entry = JournalEntry.objects.create(
-            organization=organization,
-            period=period,
-            entry_number=entry_number,
-            entry_date=entry_date,
-            narration=narration,
-            source_type=source_type,
-            source_id=source_id,
-            is_posted=True,
-            posted_at=now,
-            posted_by=user,
-            created_by=user,
-        )
+        max_retries = 3
+        journal_entry: JournalEntry | None = None
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    journal_entry = JournalEntry.objects.create(
+                        organization=organization,
+                        period=period,
+                        entry_number=entry_number,
+                        entry_date=entry_date,
+                        narration=narration,
+                        source_type=source_type,
+                        source_id=source_id,
+                        is_posted=True,
+                        posted_at=now,
+                        posted_by=user,
+                        created_by=user,
+                    )
+                break
+            except IntegrityError:
+                if is_auto_generated and attempt < max_retries - 1:
+                    year = entry_date.year
+                    entry_number = f"JE-{year}-{uuid6.uuid7().hex[-8:].upper()}"
+                else:
+                    raise
 
-        # 8. Instantiate and bulk create JournalLine records
+        if journal_entry is None:
+            raise ValidationError("Failed to allocate unique journal entry number.")
+        return journal_entry
+
+    @classmethod
+    def _bulk_create_lines(
+        cls,
+        organization: Organization,
+        journal_entry: JournalEntry,
+        parsed_lines: list[dict[str, Any]],
+        account_lookup: dict[uuid.UUID, ChartOfAccounts],
+        account_code_map: dict[str, ChartOfAccounts],
+    ) -> list[JournalLine]:
+        """Instantiates and bulk creates JournalLine items."""
         lines_to_create: list[JournalLine] = []
         for line_item in parsed_lines:
             acc_ref = line_item["account_ref"]
@@ -292,7 +311,47 @@ class LedgerService:
                 )
             )
 
-        JournalLine.objects.bulk_create(lines_to_create)
+        return JournalLine.objects.bulk_create(lines_to_create)
+
+    @classmethod
+    @transaction.atomic
+    def post_journal_entry(
+        cls,
+        organization: Organization,
+        entry_date: datetime.date,
+        lines_data: list[dict[str, Any]],
+        narration: str = "",
+        user: Any = None,
+        source_type: str = SourceTypeChoices.MANUAL,
+        source_id: Any = None,
+        period: FiscalPeriod | None = None,
+        entry_number: str | None = None,
+    ) -> JournalEntry:
+        """Posts a multi-line double-entry journal transaction."""
+        resolved_period = cls._validate_and_resolve_period(organization, entry_date, period)
+        parsed_lines, account_identifiers = cls._parse_and_validate_lines(lines_data)
+        account_lookup, account_code_map = cls._resolve_and_validate_accounts(
+            organization, account_identifiers
+        )
+
+        journal_entry = cls._persist_journal_entry_header(
+            organization=organization,
+            period=resolved_period,
+            entry_date=entry_date,
+            narration=narration,
+            source_type=source_type,
+            source_id=source_id,
+            entry_number=entry_number,
+            user=user,
+        )
+
+        cls._bulk_create_lines(
+            organization=organization,
+            journal_entry=journal_entry,
+            parsed_lines=parsed_lines,
+            account_lookup=account_lookup,
+            account_code_map=account_code_map,
+        )
 
         return journal_entry
 

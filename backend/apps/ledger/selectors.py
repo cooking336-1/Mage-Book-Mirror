@@ -21,9 +21,9 @@ from typing import Any
 from django.db.models import Sum
 
 from apps.ledger.models import (
+    AccountSnapshot,
     CategoryCodeChoices,
     ChartOfAccounts,
-    JournalEntry,
     JournalLine,
     NormalBalanceChoices,
 )
@@ -251,29 +251,51 @@ def get_account_balances(
 
     account_ids = [acc["id"] for acc in accounts_list]
 
-    # 2. Build filtered JournalLine query for posted entries
-    lines_qs = JournalLine.objects.filter(organization=organization).order_by()
+    # 2. Check for latest materialized AccountSnapshot before or on as_of_date
+    latest_snap_date = None
+    snap_map: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}
+    if as_of_date and start_date is None:
+        latest_snap_date = (
+            AccountSnapshot.objects.filter(
+                organization=organization,
+                period_end__lte=as_of_date,
+            )
+            .order_by("-period_end")
+            .values_list("period_end", flat=True)
+            .first()
+        )
+        if latest_snap_date:
+            snap_records = AccountSnapshot.objects.filter(
+                organization=organization,
+                period_end=latest_snap_date,
+            ).values("account_id", "total_debits", "total_credits")
+            for sr in snap_records:
+                snap_map[sr["account_id"]] = (
+                    sr["total_debits"] or ZERO_MONEY,
+                    sr["total_credits"] or ZERO_MONEY,
+                )
 
-    if as_of_date or start_date:
-        lines_qs = lines_qs.filter(journal_entry__is_posted=True)
+    # 3. Build filtered JournalLine query for posted entries
+    lines_qs = JournalLine.objects.filter(
+        organization=organization,
+        journal_entry__is_posted=True,
+    ).order_by()
+
+    if latest_snap_date:
+        lines_qs = lines_qs.filter(
+            journal_entry__entry_date__gt=latest_snap_date,
+            journal_entry__entry_date__lte=as_of_date,
+        )
+    else:
         if as_of_date:
             lines_qs = lines_qs.filter(journal_entry__entry_date__lte=as_of_date)
         if start_date:
             lines_qs = lines_qs.filter(journal_entry__entry_date__gte=start_date)
-    else:
-        # Fast path: only join journal_entries if unposted entries exist in this tenant
-        has_unposted = (
-            JournalEntry.objects.filter(organization=organization, is_posted=False)
-            .order_by()
-            .exists()
-        )
-        if has_unposted:
-            lines_qs = lines_qs.filter(journal_entry__is_posted=True)
 
     if category_codes is not None:
         lines_qs = lines_qs.filter(account_id__in=account_ids)
 
-    # 3. Single SQL aggregation query
+    # 4. Single SQL aggregation query
     aggregated_lines = lines_qs.values("account_id").annotate(
         sum_debit=Sum("debit_amount"),
         sum_credit=Sum("credit_amount"),
@@ -286,14 +308,15 @@ def get_account_balances(
             "credit": agg["sum_credit"] or ZERO_MONEY,
         }
 
-    # 4. Construct snapshots
+    # 5. Construct snapshots
     result: dict[str, AccountBalanceSnapshot] = {}
 
     for acc in accounts_list:
         acc_id = acc["id"]
         agg = aggregated_map.get(acc_id, {"debit": ZERO_MONEY, "credit": ZERO_MONEY})
-        total_debits = agg["debit"]
-        total_credits = agg["credit"]
+        snap_debit, snap_credit = snap_map.get(acc_id, (ZERO_MONEY, ZERO_MONEY))
+        total_debits = snap_debit + agg["debit"]
+        total_credits = snap_credit + agg["credit"]
 
         normal_balance = acc["category__normal_balance"]
         if normal_balance == NormalBalanceChoices.DEBIT:

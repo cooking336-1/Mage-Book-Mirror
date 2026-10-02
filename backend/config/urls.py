@@ -10,4 +10,6 @@ urlpatterns = [
     path("api/v1/payments/", include("apps.payments.urls")),
     path("api/v1/", include("apps.invoicing.urls")),
     path("api/v1/", include("apps.ledger.urls")),
+    path("api/v1/audit/", include("apps.audit.urls")),
+    path("api/v1/payroll/", include("apps.payroll.urls")),
 ]

@@ -7,6 +7,8 @@ from apps.ledger.views import (
     AccountJournalLineListAPIView,
     AccountListAPIView,
     BalanceSheetReportAPIView,
+    FiscalPeriodCloseAPIView,
+    FiscalPeriodListAPIView,
     JournalEntryDetailAPIView,
     JournalEntryListAPIView,
     ProfitAndLossReportAPIView,
@@ -46,5 +48,16 @@ urlpatterns = [
         "reports/balance-sheet/",
         BalanceSheetReportAPIView.as_view(),
         name="report-balance-sheet",
+    ),
+    # Fiscal Periods & Period Closing
+    path(
+        "fiscal-periods/",
+        FiscalPeriodListAPIView.as_view(),
+        name="fiscal-period-list",
+    ),
+    path(
+        "fiscal-periods/<uuid:pk>/close/",
+        FiscalPeriodCloseAPIView.as_view(),
+        name="fiscal-period-close",
     ),
 ]

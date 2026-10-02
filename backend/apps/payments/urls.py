@@ -5,12 +5,14 @@ from django.urls import path
 from apps.payments.views import (
     HubtelWebhookView,
     MomoWebhookView,
+    PaymentListCreateAPIView,
     PaystackWebhookView,
 )
 
 app_name = "payments"
 
 urlpatterns = [
+    path("", PaymentListCreateAPIView.as_view(), name="payment-list-create"),
     path("webhooks/momo/", MomoWebhookView.as_view(), name="momo-webhook"),
     path("webhooks/paystack/", PaystackWebhookView.as_view(), name="paystack-webhook"),
     path("webhooks/hubtel/", HubtelWebhookView.as_view(), name="hubtel-webhook"),

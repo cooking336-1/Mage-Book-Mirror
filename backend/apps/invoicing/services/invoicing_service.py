@@ -18,8 +18,10 @@ from django.db import transaction
 from apps.invoicing.dispatchers import enqueue_gra_clearance
 from apps.invoicing.models import (
     Contact,
+    ContactTypeChoices,
     Invoice,
     InvoiceLine,
+    InvoiceSequence,
     InvoiceStatusChoices,
 )
 from apps.ledger.models import ChartOfAccounts, SourceTypeChoices
@@ -83,35 +85,29 @@ class InvoicingService:
     """Core domain service for Invoice creation, tax breakdown, and General Ledger posting."""
 
     @classmethod
-    @transaction.atomic
-    def create_and_post_invoice(
+    def _validate_customer(
         cls,
         organization: Organization,
-        user: Any,
-        data: dict[str, Any],
-    ) -> Invoice:
-        """Compiles, calculates, freezes snapshots, and atomically posts an invoice.
-
-        Parameters:
-            organization: Authenticated tenant organization.
-            user: Initiating user.
-            data: Validated dictionary from InvoiceCreateSerializer.
-
-        Returns:
-            The created Invoice instance.
-        """
-        customer_id = data["customer_id"]
+        customer_id: Any,
+    ) -> Contact:
+        """Validates that customer exists and belongs to the given tenant."""
         customer = Contact.objects.filter(id=customer_id, organization=organization).first()
         if not customer:
             raise ValidationError(
                 {"customer_id": "Customer does not exist or does not belong to this organization."}
             )
+        return customer
 
-        lines_data = data["lines"]
+    @classmethod
+    def _compile_tax_lines(
+        cls,
+        organization: Organization,
+        lines_data: list[dict[str, Any]],
+    ) -> tuple[Any, TaxBreakdown]:
+        """Calculates multi-line taxes using the Act 1151 TaxCalculationEngine."""
         if not lines_data:
             raise ValidationError({"lines": "At least one invoice line item is required."})
 
-        # 1. Multi-line tax calculation via Act 1151 TaxCalculationEngine
         tax_lines_input: list[LineTaxItem] = []
         for idx, line in enumerate(lines_data):
             qty = Decimal(str(line["quantity"]))
@@ -144,18 +140,20 @@ class InvoicingService:
             gross_amount=tax_summary.total_gross,
             effective_rate=Decimal("0.2000"),
         )
+        return tax_summary, aggregate_breakdown
 
-        # 2. Sequential Invoice Number Generation (INV-YYYY-XXXXX)
-        issue_date = data["issue_date"]
-        existing_count = Invoice.objects.filter(
-            organization=organization,
-            issue_date__year=issue_date.year,
-        ).count()
-        invoice_number = f"INV-{issue_date.year}-{existing_count + 1:05d}"
-
-        # 3. Instantiate Invoice
-        action = data.get("action", "issue")
+    @classmethod
+    def _persist_invoice(
+        cls,
+        organization: Organization,
+        customer: Contact,
+        data: dict[str, Any],
+        invoice_number: str,
+        aggregate_breakdown: TaxBreakdown,
+    ) -> Invoice:
+        """Instantiates and saves the parent Invoice record with frozen snapshot."""
         currency = data.get("currency", "GHS")
+        issue_date = data["issue_date"]
 
         invoice = Invoice(
             organization=organization,
@@ -173,12 +171,19 @@ class InvoicingService:
             paid_amount=Decimal("0.0000"),
             status=InvoiceStatusChoices.DRAFT,
         )
-
-        # 4. Freeze customer point-in-time legal snapshot
         invoice.freeze_customer_snapshot(force=True)
         invoice.save()
+        return invoice
 
-        # 5. Create InvoiceLine items
+    @classmethod
+    def _persist_invoice_lines(
+        cls,
+        organization: Organization,
+        invoice: Invoice,
+        lines_data: list[dict[str, Any]],
+        tax_summary: Any,
+    ) -> list[InvoiceLine]:
+        """Creates and links all child InvoiceLine item rows."""
         created_lines: list[InvoiceLine] = []
         for idx, line in enumerate(lines_data):
             line_breakdown = tax_summary.line_breakdowns[idx]
@@ -200,7 +205,9 @@ class InvoicingService:
                 description=line["description"],
                 quantity=Decimal(str(line["quantity"])),
                 unit_price=Decimal(str(line["unit_price"])),
-                vat_rate=STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000"),
+                vat_rate=(
+                    STATUTORY_VAT_RATE if line_breakdown.vat_amount > 0 else Decimal("0.0000")
+                ),
                 nhil_rate=(
                     STATUTORY_NHIL_RATE if line_breakdown.nhil_amount > 0 else Decimal("0.0000")
                 ),
@@ -217,25 +224,82 @@ class InvoicingService:
             )
             inv_line.save()
             created_lines.append(inv_line)
+        return created_lines
 
-        # 6. Post to General Ledger if action is 'issue'
-        if action == "issue":
-            cls._post_invoice_to_ledger(
+    @classmethod
+    def _post_and_enqueue_issue(
+        cls,
+        organization: Organization,
+        invoice: Invoice,
+        aggregate_breakdown: TaxBreakdown,
+        user: Any,
+    ) -> None:
+        """Posts invoice journal entries to the GL and enqueues GRA clearance."""
+        cls._post_invoice_to_ledger(
+            organization=organization,
+            invoice=invoice,
+            tax_breakdown=aggregate_breakdown,
+            user=user,
+        )
+        invoice.status = InvoiceStatusChoices.PENDING_GRA
+        invoice.save(update_fields=["status"])
+
+        invoice_id = invoice.id
+        transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
+
+    @classmethod
+    def create_and_post_invoice(
+        cls,
+        organization: Organization,
+        user: Any,
+        data: dict[str, Any],
+    ) -> Invoice:
+        """Compiles, calculates, freezes snapshots, and atomically posts an invoice.
+
+        Parameters:
+            organization: Authenticated tenant organization.
+            user: Initiating user.
+            data: Validated dictionary from InvoiceCreateSerializer.
+
+        Returns:
+            The created Invoice instance.
+        """
+        customer = cls._validate_customer(organization, data["customer_id"])
+        tax_summary, aggregate_breakdown = cls._compile_tax_lines(organization, data["lines"])
+
+        action = data.get("action", "issue")
+        issue_date = data["issue_date"]
+
+        with transaction.atomic():
+            invoice_number = cls._generate_sequential_invoice_number(
+                organization=organization,
+                issue_date=issue_date,
+            )
+            invoice = cls._persist_invoice(
+                organization=organization,
+                customer=customer,
+                data=data,
+                invoice_number=invoice_number,
+                aggregate_breakdown=aggregate_breakdown,
+            )
+            cls._persist_invoice_lines(
                 organization=organization,
                 invoice=invoice,
-                tax_breakdown=aggregate_breakdown,
-                user=user,
+                lines_data=data["lines"],
+                tax_summary=tax_summary,
             )
-            invoice.status = InvoiceStatusChoices.PENDING_GRA
-            invoice.save(update_fields=["status"])
 
-            # 7. Enqueue asynchronous GRA clearance
-            enqueue_gra_clearance(invoice.id)
+            if action == "issue":
+                cls._post_and_enqueue_issue(
+                    organization=organization,
+                    invoice=invoice,
+                    aggregate_breakdown=aggregate_breakdown,
+                    user=user,
+                )
 
         return invoice
 
     @classmethod
-    @transaction.atomic
     def issue_draft_invoice(
         cls,
         invoice: Invoice,
@@ -258,18 +322,20 @@ class InvoicingService:
             effective_rate=Decimal("0.2000"),
         )
 
-        cls._post_invoice_to_ledger(
-            organization=invoice.organization,
-            invoice=invoice,
-            tax_breakdown=tax_breakdown,
-            user=user,
-        )
+        with transaction.atomic():
+            cls._post_invoice_to_ledger(
+                organization=invoice.organization,
+                invoice=invoice,
+                tax_breakdown=tax_breakdown,
+                user=user,
+            )
 
-        invoice.status = InvoiceStatusChoices.PENDING_GRA
-        invoice.save(update_fields=["status"])
+            invoice.status = InvoiceStatusChoices.PENDING_GRA
+            invoice.save(update_fields=["status"])
 
-        # Enqueue asynchronous GRA clearance
-        enqueue_gra_clearance(invoice.id)
+            # Enqueue asynchronous GRA clearance strictly after transaction commit
+            invoice_id = invoice.id
+            transaction.on_commit(lambda: enqueue_gra_clearance(invoice_id))
 
         return invoice
 
@@ -316,3 +382,95 @@ class InvoicingService:
             invoice.invoice_number,
         )
         return journal_entry
+
+    @classmethod
+    def _generate_sequential_invoice_number(
+        cls,
+        organization: Organization,
+        issue_date: Any,
+    ) -> str:
+        """Generates a strictly gapless, collision-proof invoice number using row-level locking.
+
+        Under Ghanaian statutory regulations (Act 1151 / GRA CIS), invoice sequences
+        must be strictly chronological and gapless. Acquiring a row-level lock on the
+        tenant's yearly InvoiceSequence record inside transaction.atomic() guarantees
+        zero duplicate key collisions and strictly sequential numbers even under heavy
+        concurrent load.
+        """
+        year = issue_date.year
+        seq, created = InvoiceSequence.objects.select_for_update().get_or_create(
+            organization=organization,
+            year=year,
+            defaults={"last_number": 0},
+        )
+        if created:
+            # Synchronize with any pre-existing invoices for this organization and year
+            existing_count = Invoice.objects.filter(
+                organization=organization,
+                issue_date__year=year,
+            ).count()
+            if existing_count > 0:
+                seq.last_number = existing_count
+
+        seq.last_number += 1
+        seq.save(update_fields=["last_number", "updated_at"])
+
+        org_slug = getattr(organization, "slug", None)
+        if org_slug:
+            return f"INV-{str(org_slug).upper()}-{year}-{seq.last_number:05d}"
+        return f"INV-{year}-{seq.last_number:05d}"
+
+    @classmethod
+    @transaction.atomic
+    def create_invoice(
+        cls,
+        organization: Organization,
+        user: Any = None,
+        data: dict[str, Any] | None = None,
+        customer: Contact | None = None,
+        issue_date: Any = None,
+        due_date: Any = None,
+        items: list[dict[str, Any]] | None = None,
+        lines: list[dict[str, Any]] | None = None,
+        currency: str = "GHS",
+        action: str = "issue",
+        **kwargs: Any,
+    ) -> Invoice:
+        """Convenience interface for invoice creation supporting dictionary or keyword arguments."""
+        payload: dict[str, Any] = dict(data) if data is not None else {}
+
+        if issue_date is not None:
+            payload["issue_date"] = issue_date
+        elif "issue_date" not in payload:
+            from django.utils import timezone
+
+            payload["issue_date"] = timezone.now().date()
+
+        if due_date is not None:
+            payload["due_date"] = due_date
+        elif "due_date" not in payload:
+            payload["due_date"] = payload["issue_date"]
+
+        lines_list = items or lines or payload.get("lines") or payload.get("items") or []
+        payload["lines"] = lines_list
+
+        if customer is not None:
+            payload["customer_id"] = str(customer.id)
+        elif "customer_id" not in payload:
+            default_customer = Contact.objects.filter(
+                organization=organization,
+                contact_type__in=[ContactTypeChoices.CUSTOMER, ContactTypeChoices.BOTH],
+                is_active=True,
+            ).first()
+            if not default_customer:
+                default_customer = Contact.objects.create(
+                    organization=organization,
+                    name=f"Customer - {organization.name}",
+                    contact_type=ContactTypeChoices.CUSTOMER,
+                )
+            payload["customer_id"] = str(default_customer.id)
+
+        payload.setdefault("currency", currency)
+        payload.setdefault("action", action)
+
+        return cls.create_and_post_invoice(organization=organization, user=user, data=payload)

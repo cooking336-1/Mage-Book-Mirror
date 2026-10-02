@@ -1,4 +1,5 @@
-"""Multi-tenancy and Role-Based Access Control (RBAC) models for Mage Books SAAS."""
+import hashlib
+from typing import Any
 
 import uuid6
 from django.conf import settings
@@ -6,6 +7,8 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
+
+from apps.core.fields import EncryptedCharField
 
 ghana_tin_validator = RegexValidator(
     regex=r"^[CPGVT]\d{10}$",
@@ -43,21 +46,41 @@ class RoleChoices(models.TextChoices):
     AUDITOR = "AUDITOR", "External Auditor (Read-Only Ephemeral)"
 
 
+class OrganizationQuerySet(models.QuerySet):
+    """QuerySet providing transparent lookup translation for blind indexed fields."""
+
+    def filter(self, *args: Any, **kwargs: Any) -> "OrganizationQuerySet":
+        if "business_tin" in kwargs:
+            tin = kwargs.pop("business_tin")
+            kwargs["business_tin_hash"] = Organization.compute_tin_hash(tin)
+        if "business_tin__exact" in kwargs:
+            tin = kwargs.pop("business_tin__exact")
+            kwargs["business_tin_hash"] = Organization.compute_tin_hash(tin)
+        return super().filter(*args, **kwargs)
+
+
 class Organization(models.Model):
     """Tenant master entity encapsulating Ghanaian business details and Act 1151 tax compliance."""
 
     id = models.UUIDField(primary_key=True, default=uuid6.uuid7, editable=False)
     name = models.CharField(max_length=255)
-    business_tin = models.CharField(
-        max_length=15,
-        unique=True,
+    business_tin = EncryptedCharField(
+        max_length=255,
         null=True,
         blank=True,
         validators=[ghana_tin_validator],
         help_text="GRA Taxpayer Identification Number (e.g. C0001234567)",
     )
-    ghana_card_number = models.CharField(
-        max_length=20,
+    business_tin_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Deterministic SHA-256 blind index for unique TIN lookups.",
+    )
+    ghana_card_number = EncryptedCharField(
+        max_length=255,
         null=True,
         blank=True,
         validators=[ghana_card_validator],
@@ -80,8 +103,37 @@ class Organization(models.Model):
         choices=ExperienceModeChoices.choices,
         default=ExperienceModeChoices.SIMPLE,
     )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Soft-deactivation status preserving statutory records for 6-year retention.",
+    )
+    settlement_bank_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Commercial bank name for merchant revenue settlements.",
+    )
+    settlement_account_number = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Account number for merchant bank settlements.",
+    )
+    settlement_momo_number = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        help_text="Merchant Mobile Money wallet phone number for automated settlements.",
+    )
+    settlement_locked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when financial destination coordinates were last locked/modified.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = OrganizationQuerySet.as_manager()
 
     class Meta:
         db_table = "organizations"
@@ -89,6 +141,33 @@ class Organization(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @staticmethod
+    def compute_tin_hash(tin: str | None) -> str | None:
+        """Computes deterministic SHA-256 blind index hash for a TIN."""
+        if not tin:
+            return None
+        cleaned = tin.strip().upper()
+        return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+
+    def clean(self) -> None:
+        super().clean()
+        if self.business_tin:
+            h = self.compute_tin_hash(self.business_tin)
+            qs = Organization.objects.filter(business_tin_hash=h)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                raise ValidationError(
+                    {"business_tin": "An organization with this business TIN already exists."}
+                )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.business_tin:
+            self.business_tin_hash = self.compute_tin_hash(self.business_tin)
+        else:
+            self.business_tin_hash = None
+        super().save(*args, **kwargs)
 
     @property
     def owner(self):
