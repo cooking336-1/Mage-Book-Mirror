@@ -194,7 +194,7 @@ SIMPLE_JWT = {
 JWT_AUTH_COOKIE = "access_token"
 JWT_REFRESH_COOKIE = "refresh_token"
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
-JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="Lax" if DEBUG else "Strict")
+JWT_COOKIE_SAMESITE = "Strict" if IS_TESTING else env("JWT_COOKIE_SAMESITE", default="Strict")
 JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
 # Cloudflare R2 Object Storage (S3-Compatible)
