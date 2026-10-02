@@ -23,6 +23,8 @@ environ.Env.read_env(BASE_DIR / ".env")
 IS_TESTING = "test" in sys.argv or "pytest" in sys.modules
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
+CORS_ALLOW_CREDENTIALS = True
+
 # 4. Fail-closed Security Defaults for SECRET_KEY, ALLOWED_HOSTS, and CORS:
 # Fallbacks are strictly restricted to automated test runners or explicit local DEBUG=True.
 # In production (DEBUG=False), missing variables cause an immediate startup crash (fail fast).
@@ -34,12 +36,17 @@ if IS_TESTING or DEBUG:
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["*"])
     CORS_ALLOWED_ORIGINS = env.list(
         "DJANGO_CORS_ALLOWED_ORIGINS",
-        default=["http://localhost:3000"],
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+    )
+    CSRF_TRUSTED_ORIGINS = env.list(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
     )
 else:
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
     CORS_ALLOWED_ORIGINS = env.list("DJANGO_CORS_ALLOWED_ORIGINS")
+    CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 # Application definition
 INSTALLED_APPS = [
@@ -187,7 +194,7 @@ SIMPLE_JWT = {
 JWT_AUTH_COOKIE = "access_token"
 JWT_REFRESH_COOKIE = "refresh_token"
 JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
-JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="Strict")
+JWT_COOKIE_SAMESITE = env("JWT_COOKIE_SAMESITE", default="Lax" if DEBUG else "Strict")
 JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
 # Cloudflare R2 Object Storage (S3-Compatible)
