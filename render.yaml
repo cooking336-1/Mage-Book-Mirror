@@ -1,0 +1,80 @@
+services:
+  # 1. Django Web Service (REST API)
+  - type: web
+    name: magebooks-backend
+    runtime: python
+    region: frankfurt # Low latency to Ghana / West Africa
+    plan: starter     # Use starter or standard for production (prevents free tier sleep)
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    preDeployCommand: "python manage.py migrate --noinput"
+    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 4 --threads 2 --timeout 120"
+    healthCheckPath: /api/v1/auth/csrf/
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "magebooks-backend.onrender.com,api.magebooks.com,localhost"
+      - key: DJANGO_CORS_ALLOWED_ORIGINS
+        value: "https://magebooks-saas.vercel.app,https://app.magebooks.com"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://magebooks-saas.vercel.app,https://app.magebooks.com"
+      - key: SECURE_PROXY_SSL_HEADER
+        value: "HTTP_X_FORWARDED_PROTO,https"
+      - key: JWT_COOKIE_SECURE
+        value: "True"
+      - key: JWT_COOKIE_SAMESITE
+        value: "None"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: magebooks-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: magebooks-redis
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false # Set securely in Render dashboard
+      - key: USE_MOCK_REDIS
+        value: "False"
+      - key: USE_MOCK_GRA
+        value: "True" # Change to False when live credentials are set
+      - key: USE_MOCK_SMS
+        value: "True" # Change to False when live credentials are set
+      - key: ACTIVE_PAYMENT_GATEWAY
+        value: "mock" # Change to "paystack" when live credentials are set
+
+  # 2. Celery Background Worker (PBC Zip bundling & MoMo disbursement sync)
+  - type: worker
+    name: magebooks-worker
+    runtime: python
+    region: frankfurt
+    plan: starter
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A config worker --loglevel=INFO --concurrency=2"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DATABASE_URL
+        fromDatabase:
+          name: magebooks-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: magebooks-redis
+          property: connectionString
+
+# 3. Managed PostgreSQL Database (Multi-Tenant Accounting)
+databases:
+  - name: magebooks-db
+    region: frankfurt
+    plan: starter
+    databaseName: magebooks_prod
+    user: magebooks_user
