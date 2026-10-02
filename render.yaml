@@ -72,5 +72,6 @@ services:
     name: magebooks-redis
     region: frankfurt
     plan: starter
+    ipAllowList: []
 
 
