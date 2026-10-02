@@ -46,6 +46,14 @@ services:
         value: "True" # Change to False when live credentials are set
       - key: ACTIVE_PAYMENT_GATEWAY
         value: "mock" # Change to "paystack" when live credentials are set
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
 
   # 2. Celery Background Worker (PBC Zip bundling & MoMo disbursement sync)
   - type: worker
