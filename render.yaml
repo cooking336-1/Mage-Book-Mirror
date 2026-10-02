@@ -28,9 +28,7 @@ services:
       - key: JWT_COOKIE_SAMESITE
         value: "None"
       - key: DATABASE_URL
-        fromDatabase:
-          name: magebooks-db
-          property: connectionString
+        sync: false # Set your Supabase connection string securely in the Render dashboard
       - key: REDIS_URL
         fromService:
           type: redis
@@ -62,19 +60,17 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: DATABASE_URL
-        fromDatabase:
-          name: magebooks-db
-          property: connectionString
+        sync: false # Set your Supabase connection string securely in the Render dashboard
       - key: REDIS_URL
         fromService:
           type: redis
           name: magebooks-redis
           property: connectionString
 
-# 3. Managed PostgreSQL Database (Multi-Tenant Accounting)
-databases:
-  - name: magebooks-db
+  # 3. Managed Redis (for Idempotency & Celery Broker)
+  - type: redis
+    name: magebooks-redis
     region: frankfurt
     plan: starter
-    databaseName: magebooks_prod
-    user: magebooks_user
+
+

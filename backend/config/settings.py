@@ -127,6 +127,8 @@ else:
             default="postgres://postgres:postgres@localhost:5432/magebooks_db",
         )
     }
+    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
+    
     if IS_TESTING:
         PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
