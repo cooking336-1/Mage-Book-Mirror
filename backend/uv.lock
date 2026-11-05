@@ -200,6 +200,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/cf/cd7fcb9d8f5a21fa420ddf19ee96969e36820182275a731abdf4260ed86a/celery-5.7.0-py3-none-any.whl", hash = "sha256:18310a9c919f9029e4735367484d93e6a25cdfd30afdc474622cc263d9b35f6e", size = 519594, upload-time = "2026-11-05T15:14:17.649Z" },
 ]
 
+[package.optional-dependencies]
+redis = [
+    { name = "kombu", extra = ["redis"] },
+]
+
 [[package]]
 name = "certifi"
 version = "2026.10.23"
@@ -735,6 +740,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/84/20/f73d8e0bff9708b0f2337220be1b5d7ebd738bc3a89b63cf44d257157014/kombu-5.7.0-py3-none-any.whl", hash = "sha256:dede73bff4c89175be382c4203d2f167cf7017c384396ec75c36a1b5678f1587", size = 266635, upload-time = "2026-11-03T05:58:31.475Z" },
 ]
 
+[package.optional-dependencies]
+redis = [
+    { name = "packaging" },
+    { name = "redis" },
+]
+
 [[package]]
 name = "license-expression"
 version = "30.4.4"
@@ -753,7 +764,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "boto3" },
-    { name = "celery" },
+    { name = "celery", extra = ["redis"] },
     { name = "cryptography" },
     { name = "django" },
     { name = "django-cors-headers" },
@@ -763,6 +774,7 @@ dependencies = [
     { name = "djangorestframework-simplejwt" },
     { name = "gunicorn" },
     { name = "httpx" },
+    { name = "packaging" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyjwt" },
     { name = "redis" },
@@ -781,7 +793,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
-    { name = "celery", specifier = ">=5.6.3" },
+    { name = "celery", extras = ["redis"], specifier = ">=5.6.3" },
     { name = "cryptography", specifier = ">=50.0.1" },
     { name = "django", specifier = ">=5.1" },
     { name = "django-cors-headers", specifier = ">=4.4" },
@@ -791,6 +803,7 @@ requires-dist = [
     { name = "djangorestframework-simplejwt", specifier = ">=5.5.1" },
     { name = "gunicorn", specifier = ">=26.2.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pyjwt", specifier = ">=2.15.0" },
     { name = "redis", specifier = ">=8.1.0" },
