@@ -44,9 +44,9 @@ if IS_TESTING or DEBUG:
     )
 else:
     SECRET_KEY = env("DJANGO_SECRET_KEY")
-    ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
-    CORS_ALLOWED_ORIGINS = env.list("DJANGO_CORS_ALLOWED_ORIGINS")
-    CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
+    ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost"])
+    CORS_ALLOWED_ORIGINS = env.list("DJANGO_CORS_ALLOWED_ORIGINS", default=[])
+    CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
 # Application definition
 INSTALLED_APPS = [
@@ -161,6 +161,11 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default Storage Configurations (WhiteNoise for Static, Cloudflare R2 for Media)
 # Only use R2 if credentials are provided, otherwise fallback to local FileSystemStorage
+_raw_r2_endpoint = env("R2_ENDPOINT_URL", default="").rstrip("/")
+_r2_bucket = env("R2_BUCKET_NAME", default="magebooks-prod")
+if _r2_bucket and _raw_r2_endpoint.endswith(f"/{_r2_bucket}"):
+    _raw_r2_endpoint = _raw_r2_endpoint[: -len(f"/{_r2_bucket}")]
+
 if env("R2_ACCESS_KEY_ID", default=""):
     STORAGES = {
         "default": {
@@ -168,8 +173,8 @@ if env("R2_ACCESS_KEY_ID", default=""):
             "OPTIONS": {
                 "access_key": env("R2_ACCESS_KEY_ID"),
                 "secret_key": env("R2_SECRET_ACCESS_KEY"),
-                "bucket_name": env("R2_BUCKET_NAME", default="magebooks-prod"),
-                "endpoint_url": env("R2_ENDPOINT_URL"),
+                "bucket_name": _r2_bucket,
+                "endpoint_url": _raw_r2_endpoint,
                 "region_name": "auto",
             },
         },
@@ -229,11 +234,15 @@ JWT_COOKIE_SECURE = env.bool("JWT_COOKIE_SECURE", default=not DEBUG)
 JWT_COOKIE_SAMESITE = "Strict" if IS_TESTING else env("JWT_COOKIE_SAMESITE", default="Strict")
 JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
+# CSRF Cookie Transport Settings (Matches JWT Cookie transport for cross-site Vercel SPA)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SAMESITE = "Strict" if IS_TESTING else env("CSRF_COOKIE_SAMESITE", default=JWT_COOKIE_SAMESITE)
+
 # Cloudflare R2 Object Storage (S3-Compatible)
 CLOUDFLARE_R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", default="")
 CLOUDFLARE_R2_SECRET_ACCESS_KEY = env("R2_SECRET_ACCESS_KEY", default="")
-CLOUDFLARE_R2_BUCKET_NAME = env("R2_BUCKET_NAME", default="magebooks-prod")
-CLOUDFLARE_R2_ENDPOINT_URL = env("R2_ENDPOINT_URL", default="")
+CLOUDFLARE_R2_BUCKET_NAME = _r2_bucket
+CLOUDFLARE_R2_ENDPOINT_URL = _raw_r2_endpoint
 
 # Payment Gateway & Webhook Secrets
 PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="sk_test_mock_paystack_secret_key")
