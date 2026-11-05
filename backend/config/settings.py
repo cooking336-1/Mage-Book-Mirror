@@ -236,7 +236,9 @@ JWT_AUTH_COOKIE_PATH = env("JWT_AUTH_COOKIE_PATH", default="/")
 
 # CSRF Cookie Transport Settings (Matches JWT Cookie transport for cross-site Vercel SPA)
 CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
-CSRF_COOKIE_SAMESITE = "Strict" if IS_TESTING else env("CSRF_COOKIE_SAMESITE", default=JWT_COOKIE_SAMESITE)
+CSRF_COOKIE_SAMESITE = (
+    "Strict" if IS_TESTING else env("CSRF_COOKIE_SAMESITE", default=JWT_COOKIE_SAMESITE)
+)
 
 # Cloudflare R2 Object Storage (S3-Compatible)
 CLOUDFLARE_R2_ACCESS_KEY_ID = env("R2_ACCESS_KEY_ID", default="")
