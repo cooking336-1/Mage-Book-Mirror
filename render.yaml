@@ -67,6 +67,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
       - key: DATABASE_URL
         sync: false # Set your Supabase connection string securely in the Render dashboard
       - key: REDIS_URL
@@ -74,6 +78,14 @@ services:
           type: redis
           name: magebooks-redis
           property: connectionString
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
 
   # 3. Managed Redis (for Idempotency & Celery Broker)
   - type: redis
