@@ -81,6 +81,10 @@ jmespath==1.1.0
     #   botocore
 kombu==5.7.0
     # via celery
+packaging==26.3
+    # via
+    #   magebooks-backend (pyproject.toml)
+    #   kombu
 pillow==13.0.0
     # via reportlab
 prompt-toolkit==3.0.53
@@ -100,7 +104,9 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   celery
 redis==8.1.0
-    # via magebooks-backend (pyproject.toml)
+    # via
+    #   magebooks-backend (pyproject.toml)
+    #   kombu
 reportlab==5.1.0
     # via magebooks-backend (pyproject.toml)
 s3transfer==0.19.3
