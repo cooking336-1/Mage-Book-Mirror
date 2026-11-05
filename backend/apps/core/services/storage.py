@@ -121,6 +121,10 @@ class CloudflareR2Storage(BaseStorageService):
                 f"https://{account_id}.r2.cloudflarestorage.com" if account_id else "",
             ),
         )
+        if endpoint_url:
+            endpoint_url = endpoint_url.rstrip("/")
+            if self.bucket_name and endpoint_url.endswith(f"/{self.bucket_name}"):
+                endpoint_url = endpoint_url[: -len(f"/{self.bucket_name}")]
         access_key = getattr(
             settings,
             "CLOUDFLARE_R2_ACCESS_KEY_ID",
