@@ -79,6 +79,7 @@ class RegisterView(APIView):
     """Register a new user account, generate JWT cookies, and return user profile."""
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request: Request) -> Response:
         serializer = RegisterSerializer(data=request.data, context={"request": request})
