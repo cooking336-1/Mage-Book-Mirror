@@ -327,7 +327,7 @@ class RegistrationAdversarialChallengeTests(TestCase):
             self.assertEqual(
                 res.status_code,
                 status.HTTP_400_BAD_REQUEST,
-                f"Attempt {i+1} returned status {res.status_code} instead of 400",
+                f"Attempt {i + 1} returned status {res.status_code} instead of 400",
             )
             self.assertIn("email", res.data)
 
