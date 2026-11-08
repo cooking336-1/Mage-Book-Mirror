@@ -407,9 +407,7 @@ class RegisterAPITests(TestCase):
         response = self.client.post(self.register_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("email", response.data)
-        self.assertTrue(
-            any("already exists" in str(err).lower() for err in response.data["email"])
-        )
+        self.assertTrue(any("already exists" in str(err).lower() for err in response.data["email"]))
 
     def test_register_invalid_email_format_returns_400(self):
         """Verify invalid email format returns 400 Bad Request with field error."""
@@ -420,9 +418,7 @@ class RegisterAPITests(TestCase):
         response = self.client.post(self.register_url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("email", response.data)
-        self.assertTrue(
-            any("valid email" in str(err).lower() for err in response.data["email"])
-        )
+        self.assertTrue(any("valid email" in str(err).lower() for err in response.data["email"]))
 
     def test_register_short_password_returns_400(self):
         """Verify password shorter than 8 characters returns 400 Bad Request."""
