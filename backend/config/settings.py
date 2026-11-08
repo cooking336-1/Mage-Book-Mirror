@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,6 +25,11 @@ IS_TESTING = "test" in sys.argv or "pytest" in sys.modules
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-tenant-id",
+    "x-organization-id",
+    "idempotency-key",
+]
 
 # 4. Fail-closed Security Defaults for SECRET_KEY, ALLOWED_HOSTS, and CORS:
 # Fallbacks are strictly restricted to automated test runners or explicit local DEBUG=True.
