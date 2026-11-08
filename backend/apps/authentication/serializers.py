@@ -76,6 +76,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         style={"input_type": "password"},
     )
 
+    def validate_email(self, value: str) -> str:
+        """Normalize email address to lowercase and strip whitespace."""
+        normalized = value.strip().lower()
+        if CustomUser.objects.filter(email__iexact=normalized).exists():
+            raise serializers.ValidationError("User with this email already exists.")
+        return normalized
+
     class Meta:
         model = CustomUser
         fields = ("email", "password", "first_name", "last_name", "phone_number")
