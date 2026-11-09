@@ -127,8 +127,11 @@ else:
             default="postgres://postgres:postgres@localhost:5432/magebooks_db",
         )
     }
-    DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
-    
+    # Managed Postgres (Supabase/Render) requires SSL; a plain local Postgres usually has none.
+    DATABASES["default"]["OPTIONS"] = {
+        "sslmode": env("DB_SSLMODE", default="prefer" if DEBUG else "require"),
+    }
+
     if IS_TESTING:
         PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
