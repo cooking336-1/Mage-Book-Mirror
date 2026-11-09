@@ -6,6 +6,146 @@ import Link from "next/link";
 import Logo from "@/components/Logo";
 import apiClient from "@/lib/apiClient";
 
+interface FieldErrors {
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
+  [key: string]: string | undefined;
+}
+
+interface ParsedSignupError {
+  generalError: string | null;
+  fieldErrors: FieldErrors;
+}
+
+function parseSignupError(err: unknown): ParsedSignupError {
+  const result: ParsedSignupError = {
+    generalError: null,
+    fieldErrors: {},
+  };
+
+  if (!err || typeof err !== "object") {
+    result.generalError = "Unable to create account. Please try again.";
+    return result;
+  }
+
+  const axiosErr = err as {
+    code?: string;
+    message?: string;
+    response?: {
+      status?: number;
+      data?: unknown;
+    };
+  };
+
+  // Case 1: Network / connection failure (backend unreachable)
+  if (!axiosErr.response) {
+    if (axiosErr.code === "ERR_NETWORK" || axiosErr.message === "Network Error") {
+      result.generalError =
+        "Unable to connect to authentication server. Please check your network connection.";
+    } else if (axiosErr.message) {
+      result.generalError = axiosErr.message;
+    } else {
+      result.generalError = "Network error: Unable to contact server. Please try again.";
+    }
+    return result;
+  }
+
+  const { status, data } = axiosErr.response;
+
+  // Case 2: Server errors (5xx)
+  if (status && status >= 500) {
+    if (typeof data === "string" && data.includes("OperationalError")) {
+      result.generalError =
+        "Database service is temporarily unavailable. Please try again shortly.";
+    } else if (
+      typeof data === "string" &&
+      (data.includes("<!DOCTYPE") || data.includes("<html"))
+    ) {
+      result.generalError = `Server error (${status}). The server encountered an issue. Please try again later.`;
+    } else if (
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof (data as { detail: unknown }).detail === "string"
+    ) {
+      result.generalError = (data as { detail: string }).detail;
+    } else {
+      result.generalError = `Server error (${status}). Please try again later.`;
+    }
+    return result;
+  }
+
+  // Case 3: Client errors with string payload
+  if (typeof data === "string") {
+    result.generalError = data || "Unable to create account. Please try again.";
+    return result;
+  }
+
+  // Case 4: Client errors (4xx) with JSON object payload
+  if (data && typeof data === "object") {
+    const errorObj = data as Record<string, unknown>;
+
+    // Non-field errors or top-level detail / message / error
+    if (typeof errorObj.detail === "string") {
+      result.generalError = errorObj.detail;
+    } else if (Array.isArray(errorObj.detail) && errorObj.detail.length > 0) {
+      result.generalError = errorObj.detail.map(String).join(" ");
+    }
+
+    if (Array.isArray(errorObj.non_field_errors) && errorObj.non_field_errors.length > 0) {
+      result.generalError = errorObj.non_field_errors.map(String).join(" ");
+    } else if (typeof errorObj.non_field_errors === "string") {
+      result.generalError = errorObj.non_field_errors;
+    }
+
+    if (!result.generalError) {
+      if (typeof errorObj.message === "string") {
+        result.generalError = errorObj.message;
+      } else if (typeof errorObj.error === "string") {
+        result.generalError = errorObj.error;
+      }
+    }
+
+    // Field-specific errors (email, password, etc.)
+    for (const [key, value] of Object.entries(errorObj)) {
+      if (
+        key === "detail" ||
+        key === "non_field_errors" ||
+        key === "error" ||
+        key === "message"
+      ) {
+        continue;
+      }
+
+      if (Array.isArray(value) && value.length > 0) {
+        result.fieldErrors[key] = value.map(String).join(" ");
+      } else if (typeof value === "string") {
+        result.fieldErrors[key] = value;
+      }
+    }
+
+    // If there were only unknown field errors (e.g. phone_number), surface in generalError too
+    const unknownFieldKeys = Object.keys(result.fieldErrors).filter(
+      (k) => !["email", "password", "confirmPassword"].includes(k)
+    );
+    if (unknownFieldKeys.length > 0 && !result.generalError) {
+      result.generalError = unknownFieldKeys
+        .map((k) => `${k.replace("_", " ")}: ${result.fieldErrors[k]}`)
+        .join("; ");
+    }
+
+    if (!result.generalError && Object.keys(result.fieldErrors).length === 0) {
+      result.generalError = "Unable to create account. Please try again.";
+    }
+
+    return result;
+  }
+
+  result.generalError = "Unable to create account. Please try again.";
+  return result;
+}
+
 export default function SignUpPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -14,24 +154,37 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  const errorMessage = generalError;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMessage(null);
+    setGeneralError(null);
+    setFieldErrors({});
 
-    if (!email.trim() || !password) {
-      setErrorMessage("Please fill in all required fields.");
-      return;
+    const trimmedEmail = email.trim();
+    const newFieldErrors: FieldErrors = {};
+
+    if (!trimmedEmail) {
+      newFieldErrors.email = "Email address is required.";
     }
 
-    if (password !== confirmPassword) {
-      setErrorMessage("Passwords do not match.");
-      return;
+    if (!password) {
+      newFieldErrors.password = "Password is required.";
+    } else if (password.length < 8) {
+      newFieldErrors.password = "Password must be at least 8 characters long.";
     }
 
-    if (password.length < 8) {
-      setErrorMessage("Password must be at least 8 characters long.");
+    if (!confirmPassword) {
+      newFieldErrors.confirmPassword = "Confirm password is required.";
+    } else if (password && password !== confirmPassword) {
+      newFieldErrors.confirmPassword = "Passwords do not match.";
+    }
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors);
       return;
     }
 
@@ -47,30 +200,16 @@ export default function SignUpPage() {
 
       // 2. Register account and establish JWT cookie session
       await apiClient.post("/api/v1/auth/register/", {
-        email: email.trim(),
+        email: trimmedEmail,
         password,
       });
 
       // 3. Navigate to onboarding wizard
       router.push("/onboarding");
     } catch (err: unknown) {
-      const axiosErr = err as {
-        response?: {
-          data?: {
-            email?: string[];
-            password?: string[];
-            detail?: string;
-            non_field_errors?: string[];
-          };
-        };
-      };
-      const detail =
-        axiosErr.response?.data?.email?.[0] ||
-        axiosErr.response?.data?.password?.[0] ||
-        axiosErr.response?.data?.detail ||
-        axiosErr.response?.data?.non_field_errors?.[0] ||
-        "Unable to create account. Please try again.";
-      setErrorMessage(detail);
+      const parsed = parseSignupError(err);
+      setGeneralError(parsed.generalError);
+      setFieldErrors(parsed.fieldErrors);
     } finally {
       setIsLoading(false);
     }
@@ -116,32 +255,67 @@ export default function SignUpPage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email/Phone */}
+            {/* Email */}
             <div>
-              <label className="block text-sm text-[#141b2b] mb-2">
-                Email/Phone Number
+              <label className="block text-sm text-[#141b2b] mb-2" htmlFor="signup-email">
+                Email Address
               </label>
               <input
-                type="text"
+                id="signup-email"
+                type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email or phone number"
-                className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldErrors.email) {
+                    setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                  }
+                  if (generalError) {
+                    setGeneralError(null);
+                  }
+                }}
+                placeholder="Enter your email address"
+                aria-invalid={!!fieldErrors.email}
+                aria-describedby={fieldErrors.email ? "email-error" : undefined}
+                className={`w-full h-12 px-4 bg-[#f9f9ff] border rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:border-transparent ${
+                  fieldErrors.email
+                    ? "border-[#ef4444] focus:ring-[#ef4444]"
+                    : "border-[#c3c6d7] focus:ring-[#2563eb]"
+                }`}
               />
+              {fieldErrors.email && (
+                <p className="mt-1 text-xs text-[#ef4444] font-medium" id="email-error">
+                  {fieldErrors.email}
+                </p>
+              )}
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-sm text-[#141b2b] mb-2">
+              <label className="block text-sm text-[#141b2b] mb-2" htmlFor="signup-password">
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="signup-password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (fieldErrors.password) {
+                      setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                    }
+                    if (generalError) {
+                      setGeneralError(null);
+                    }
+                  }}
                   placeholder="Enter your password (min. 8 characters)"
-                  className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent"
+                  aria-invalid={!!fieldErrors.password}
+                  aria-describedby={fieldErrors.password ? "password-error" : undefined}
+                  className={`w-full h-12 px-4 bg-[#f9f9ff] border rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:border-transparent ${
+                    fieldErrors.password
+                      ? "border-[#ef4444] focus:ring-[#ef4444]"
+                      : "border-[#c3c6d7] focus:ring-[#2563eb]"
+                  }`}
                 />
                 <button
                   type="button"
@@ -152,20 +326,40 @@ export default function SignUpPage() {
                   {eyeIcon(showPassword)}
                 </button>
               </div>
+              {fieldErrors.password && (
+                <p className="mt-1 text-xs text-[#ef4444] font-medium" id="password-error">
+                  {fieldErrors.password}
+                </p>
+              )}
             </div>
 
             {/* Confirm Password */}
             <div>
-              <label className="block text-sm text-[#141b2b] mb-2">
+              <label className="block text-sm text-[#141b2b] mb-2" htmlFor="signup-confirm-password">
                 Confirm Password
               </label>
               <div className="relative">
                 <input
+                  id="signup-confirm-password"
                   type={showConfirm ? "text" : "password"}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (fieldErrors.confirmPassword) {
+                      setFieldErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+                    }
+                    if (generalError) {
+                      setGeneralError(null);
+                    }
+                  }}
                   placeholder="Re-enter your password"
-                  className="w-full h-12 px-4 bg-[#f9f9ff] border border-[#c3c6d7] rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent"
+                  aria-invalid={!!fieldErrors.confirmPassword}
+                  aria-describedby={fieldErrors.confirmPassword ? "confirm-password-error" : undefined}
+                  className={`w-full h-12 px-4 bg-[#f9f9ff] border rounded-lg text-base text-[#141b2b] placeholder-[#6b7280] focus:outline-none focus:ring-2 focus:border-transparent ${
+                    fieldErrors.confirmPassword
+                      ? "border-[#ef4444] focus:ring-[#ef4444]"
+                      : "border-[#c3c6d7] focus:ring-[#2563eb]"
+                  }`}
                 />
                 <button
                   type="button"
@@ -176,6 +370,11 @@ export default function SignUpPage() {
                   {eyeIcon(showConfirm)}
                 </button>
               </div>
+              {fieldErrors.confirmPassword && (
+                <p className="mt-1 text-xs text-[#ef4444] font-medium" id="confirm-password-error">
+                  {fieldErrors.confirmPassword}
+                </p>
+              )}
             </div>
 
             {/* Continue button */}

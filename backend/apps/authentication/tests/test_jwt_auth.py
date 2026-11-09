@@ -344,3 +344,113 @@ class JWTAuthAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access_token", response.cookies)
         self.assertNotIn("refresh_token", response.cookies)
+
+
+class RegisterAPITests(TestCase):
+    """Integration tests for user registration, validation, and cookie issuance."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.register_url = "/api/v1/auth/register/"
+        self.valid_payload = {
+            "email": "new.accountant@magebooks.com",
+            "password": "StrongPassword2026!",
+            "first_name": "Kwabena",
+            "last_name": "Asante",
+            "phone_number": "+233240001122",
+        }
+
+    def test_register_success_returns_201_with_cookies_and_user_data(self):
+        """Verify registration creates user, returns profile, and attaches JWT cookies."""
+        payload = {
+            "email": "  Kwame.Mensah@MageBooks.COM  ",
+            "password": "StrongPassword2026!",
+            "first_name": "Kwame",
+            "last_name": "Mensah",
+        }
+        response = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("user", response.data)
+        self.assertIn("csrf_token", response.data)
+        self.assertEqual(response.data["detail"], "Registration successful.")
+
+        # Email must be trimmed and lowercased
+        self.assertEqual(response.data["user"]["email"], "kwame.mensah@magebooks.com")
+        self.assertTrue(User.objects.filter(email="kwame.mensah@magebooks.com").exists())
+
+        # Inspect access_token cookie
+        self.assertIn("access_token", response.cookies)
+        access_cookie = response.cookies["access_token"]
+        self.assertTrue(access_cookie["httponly"])
+        self.assertEqual(access_cookie["samesite"], "Strict")
+        self.assertEqual(access_cookie["path"], "/")
+
+        # Inspect refresh_token cookie
+        self.assertIn("refresh_token", response.cookies)
+        refresh_cookie = response.cookies["refresh_token"]
+        self.assertTrue(refresh_cookie["httponly"])
+        self.assertEqual(refresh_cookie["samesite"], "Strict")
+        self.assertEqual(refresh_cookie["path"], "/")
+
+    def test_register_duplicate_email_returns_400(self):
+        """Verify duplicate email registration returns 400 Bad Request with specific error."""
+        User.objects.create_user(
+            email="existing.user@magebooks.com",
+            password="ExistingPassword2026!",
+        )
+
+        # Attempt to register with the same email (varying case and whitespace)
+        payload = {
+            "email": "  EXISTING.USER@MageBooks.COM ",
+            "password": "AnotherPassword2026!",
+        }
+        response = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+        self.assertTrue(any("already exists" in str(err).lower() for err in response.data["email"]))
+
+    def test_register_invalid_email_format_returns_400(self):
+        """Verify invalid email format returns 400 Bad Request with field error."""
+        payload = {
+            "email": "not-an-email-address",
+            "password": "StrongPassword2026!",
+        }
+        response = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+        self.assertTrue(any("valid email" in str(err).lower() for err in response.data["email"]))
+
+    def test_register_short_password_returns_400(self):
+        """Verify password shorter than 8 characters returns 400 Bad Request."""
+        payload = {
+            "email": "valid.user@magebooks.com",
+            "password": "short",
+        }
+        response = self.client.post(self.register_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.data)
+        self.assertTrue(
+            any("8 characters" in str(err).lower() for err in response.data["password"])
+        )
+
+    def test_register_with_existing_access_token_cookie_succeeds(self):
+        """Verify registration succeeds even if client has a stale access_token cookie.
+
+        Checks that setting authentication_classes = [] bypasses CSRF check on registration.
+        """
+        csrf_client = APIClient(enforce_csrf_checks=True)
+        # Pre-seed a stale access_token cookie without CSRF headers
+        csrf_client.cookies["access_token"] = "stale-expired-jwt-token"
+
+        response = csrf_client.post(self.register_url, self.valid_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("user", response.data)
+        self.assertEqual(response.data["user"]["email"], self.valid_payload["email"])
+        self.assertIn("access_token", response.cookies)
+
+    def test_register_alias_signup_url_succeeds(self):
+        """Verify /api/v1/auth/signup/ alias endpoint functions identically to /register/."""
+        response = self.client.post("/api/v1/auth/signup/", self.valid_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn("user", response.data)
+        self.assertEqual(response.data["user"]["email"], self.valid_payload["email"])
