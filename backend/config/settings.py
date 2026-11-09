@@ -133,6 +133,10 @@ else:
             default="postgres://postgres:postgres@localhost:5432/magebooks_db",
         )
     }
+    # Managed Postgres (Supabase/Render) requires SSL; a plain local Postgres usually has none.
+    DATABASES["default"]["OPTIONS"] = {
+        "sslmode": env("DB_SSLMODE", default="prefer" if DEBUG else "require"),
+    }
     if not DEBUG and not IS_TESTING:
         DATABASES["default"]["OPTIONS"] = {"sslmode": "require"}
 
