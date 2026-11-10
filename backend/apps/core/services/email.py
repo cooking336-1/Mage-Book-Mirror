@@ -22,14 +22,19 @@ def send_transactional_email(
     subject: str,
     html_content: str,
     to_name: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> bool:
     """Dispatches a transactional email via Brevo's v3 SMTP API.
+
+    Disables Brevo click/open tracking proxies by default (X-Mailin-Track-Clicks=0,
+    X-Mailin-Track=0) to ensure raw, direct destination links and optimal deliverability.
 
     Args:
         to_email: Recipient email address.
         subject: Email subject line.
         html_content: Responsive HTML body of the email.
         to_name: Optional recipient display name.
+        headers: Optional custom email headers to merge or override.
 
     Returns:
         True if email was accepted by Brevo (or suppressed in test mode), False otherwise.
@@ -46,11 +51,19 @@ def send_transactional_email(
         logger.warning("[EmailService] BREVO_API_KEY not configured. Email suppressed.")
         return False
 
+    email_headers: dict[str, str] = {
+        "X-Mailin-Track-Clicks": "0",
+        "X-Mailin-Track": "0",
+    }
+    if headers:
+        email_headers.update(headers)
+
     payload: dict[str, Any] = {
         "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": to_email, "name": to_name or to_email}],
         "subject": subject,
         "htmlContent": html_content,
+        "headers": email_headers,
     }
 
     req = urllib.request.Request(
