@@ -66,6 +66,33 @@ class EmailServiceTests(SimpleTestCase):
             self.assertEqual(data["sender"]["email"], "sender@example.com")
             self.assertEqual(data["to"][0]["email"], "recipient@example.com")
             self.assertEqual(data["to"][0]["name"], "Recipient Name")
+            self.assertEqual(data["headers"]["X-Mailin-Track-Clicks"], "0")
+            self.assertEqual(data["headers"]["X-Mailin-Track"], "0")
+
+    @override_settings(
+        IS_TESTING=False,
+        BREVO_API_KEY="test-key-123",
+        BREVO_SENDER_EMAIL="sender@example.com",
+    )
+    def test_send_transactional_email_custom_headers(self):
+        """Custom headers are merged into default tracking suppression headers."""
+        mock_response = MagicMock()
+        mock_response.status = 201
+        mock_response.__enter__.return_value = mock_response
+
+        with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
+            result = send_transactional_email(
+                to_email="recipient@example.com",
+                subject="Subject",
+                html_content="<p>Body</p>",
+                headers={"X-Custom-Header": "value123"},
+            )
+            self.assertTrue(result)
+            req = mock_urlopen.call_args[0][0]
+            data = json.loads(req.data.decode("utf-8"))
+            self.assertEqual(data["headers"]["X-Mailin-Track-Clicks"], "0")
+            self.assertEqual(data["headers"]["X-Mailin-Track"], "0")
+            self.assertEqual(data["headers"]["X-Custom-Header"], "value123")
 
     @override_settings(IS_TESTING=False, BREVO_API_KEY="test-key-123")
     def test_send_transactional_email_http_error_graceful_handling(self):
