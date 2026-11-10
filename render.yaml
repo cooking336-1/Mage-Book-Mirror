@@ -54,6 +54,12 @@ services:
         sync: false
       - key: R2_ENDPOINT_URL
         sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        value: "marcelyeboah12@gmail.com"
+      - key: FRONTEND_URL
+        value: "https://magebooks-saas.vercel.app"
 
   # 2. Celery Background Worker (PBC Zip bundling & MoMo disbursement sync)
   - type: worker
@@ -86,6 +92,12 @@ services:
         sync: false
       - key: R2_ENDPOINT_URL
         sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        value: "marcelyeboah12@gmail.com"
+      - key: FRONTEND_URL
+        value: "https://magebooks-saas.vercel.app"
 
   # 3. Managed Redis (for Idempotency & Celery Broker)
   - type: redis
