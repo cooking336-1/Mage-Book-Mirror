@@ -39,6 +39,18 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[3]) : null;
 }
 
+// When the API is on another site (localhost or Vercel -> onrender.com), its `csrftoken`
+// cookie is not readable via document.cookie. The backend also returns the token in the
+// JSON body of /csrf/, /register/ and /login/, so remember the latest one here.
+let csrfTokenFromResponse: string | null = null;
+
+function rememberCsrfToken(data: unknown): void {
+  if (data && typeof data === "object" && "csrf_token" in data) {
+    const token = (data as { csrf_token?: unknown }).csrf_token;
+    if (typeof token === "string" && token) csrfTokenFromResponse = token;
+  }
+}
+
 export const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   withCredentials: true,
@@ -59,7 +71,7 @@ apiClient.interceptors.request.use(
 
     // 2. Inject CSRF Token for state-mutating requests
     if (typeof window !== "undefined") {
-      const csrfToken = getCookie("csrftoken");
+      const csrfToken = getCookie("csrftoken") || csrfTokenFromResponse;
       if (csrfToken && !config.headers["X-CSRFToken"]) {
         config.headers["X-CSRFToken"] = csrfToken;
       }
@@ -92,7 +104,10 @@ const processQueue = (error: AxiosError | null) => {
 
 // ── Global Response Interceptor ───────────────────────────────────────────────
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    rememberCsrfToken(response.data);
+    return response;
+  },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
