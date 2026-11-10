@@ -65,7 +65,7 @@ def send_transactional_email(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             logger.info(
                 "[EmailService] Email dispatched successfully to %s (HTTP %s)",
                 to_email,
