@@ -292,3 +292,17 @@ if IS_TESTING or DEBUG:
     )
 else:
     FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")
+
+# Brevo Transactional Email Configuration
+BREVO_API_KEY = env("BREVO_API_KEY", default="")
+BREVO_SENDER_EMAIL = env("BREVO_SENDER_EMAIL", default="marcelyeboah12@gmail.com")
+BREVO_SENDER_NAME = env("BREVO_SENDER_NAME", default="Mage Books Security")
+
+# Frontend Application Origin (for password reset links)
+FRONTEND_URL = env(
+    "FRONTEND_URL",
+    default="http://localhost:3000" if DEBUG else "https://magebooks-saas.vercel.app",
+)
+
+# Password Reset Token Timeout (15 minutes in seconds)
+PASSWORD_RESET_TIMEOUT = env.int("PASSWORD_RESET_TIMEOUT", default=900)
