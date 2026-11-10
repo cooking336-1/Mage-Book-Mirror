@@ -9,11 +9,56 @@ on:
 
 jobs:
   # =========================================================================
+  # Security Layer 1: Secret Detection (Gitleaks)
+  # =========================================================================
+  secret-scan:
+    name: Security Gate (Gitleaks Secret Scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # Security Layer 2: Python SAST (Bandit)
+  # =========================================================================
+  security-sast:
+    name: Security Gate (Bandit SAST Scanner)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install Dependencies
+        run: uv sync
+
+      - name: Run Bandit Python SAST Scan
+        run: uv run bandit -r apps/ config/ -ll -i
+
+  # =========================================================================
   # Stage 1: Fast Static Analysis, Dependency Security & In-Memory Tests
   # =========================================================================
   backend-stage-1-checks:
     name: Backend Stage 1 (Fast Static & Unit Gates)
     runs-on: ubuntu-latest
+    needs: security-sast
     defaults:
       run:
         working-directory: backend
@@ -141,8 +186,8 @@ jobs:
   mirror-repository:
     name: Mirror Repository to External Host
     runs-on: ubuntu-latest
-    needs: [backend-stage-2-postgres, frontend-checks]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [secret-scan, security-sast, backend-stage-2-postgres, frontend-checks]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && success()
 
     steps:
       - name: Checkout Code with Complete History
