@@ -1,9 +1,14 @@
 """Views for JWT authentication and session cookie management."""
 
+import logging
 from typing import Any
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.middleware.csrf import get_token
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -14,10 +19,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.authentication.serializers import (
     LoginSerializer,
+    PasswordResetConfirmSerializer,
     RegisterSerializer,
     UserResponseSerializer,
     UserUpdateSerializer,
 )
+from apps.core.services.email import send_transactional_email
+
+logger = logging.getLogger(__name__)
 
 
 def set_jwt_cookies(
@@ -263,11 +272,12 @@ class VerifyPasswordView(APIView):
 class PasswordResetRequestView(APIView):
     """Initiates password reset request.
 
-    Validates email format and dispatches reset instructions.
+    Validates email format, generates secure HMAC token, and dispatches reset instructions.
     Always returns HTTP 200 OK to prevent user/email enumeration attacks.
     """
 
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request: Request) -> Response:
         email = request.data.get("email", "")
@@ -276,11 +286,7 @@ class PasswordResetRequestView(APIView):
                 {"email": ["Please enter a valid email address."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        import logging
 
-        from django.contrib.auth import get_user_model
-
-        logger = logging.getLogger(__name__)
         clean_email = email.strip().lower()
         user = get_user_model().objects.filter(email=clean_email, is_active=True).first()
         if user:
@@ -288,12 +294,147 @@ class PasswordResetRequestView(APIView):
                 "[PasswordResetRequestView] Password reset requested for user: %s",
                 user.email,
             )
+            frontend_url = getattr(
+                settings, "FRONTEND_URL", "https://magebooks-saas.vercel.app"
+            ).rstrip("/")
+            token = default_token_generator.make_token(user)
+            uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+            reset_url = f"{frontend_url}/reset-password?uid={uidb64}&token={token}"
+
+            display_name = getattr(user, "first_name", "") or user.email
+            html_content = (
+                "<!DOCTYPE html>"
+                "<html><head><meta charset='utf-8'></head>"
+                "<body style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', "
+                'Roboto, sans-serif; background-color: #f4f7fe; margin: 0; padding: 32px 16px;">'
+                '<div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; '
+                'border: 1px solid #c3c6d7; border-radius: 12px; padding: 40px;">'
+                '<div style="text-align: center; margin-bottom: 32px;">'
+                '<h2 style="color: #2563eb; margin: 0; font-size: 26px; font-weight: 800;">'
+                "Mage Books</h2>"
+                '<p style="color: #555f6d; font-size: 14px; margin-top: 4px;">'
+                "Smart Accounting for African Enterprises</p>"
+                "</div>"
+                '<h1 style="color: #141b2b; font-size: 20px; font-weight: 700; '
+                'margin-bottom: 16px;">'
+                "Reset your password</h1>"
+                f'<p style="color: #555f6d; font-size: 15px; line-height: 1.6; '
+                f'margin-bottom: 24px;">'
+                f"Hi {display_name},<br>"
+                "We received a request to reset the password for your Mage Books account "
+                f"(<strong>{user.email}</strong>). Click the button below to choose a new password:"
+                "</p>"
+                '<div style="text-align: center; margin: 32px 0;">'
+                f'<a href="{reset_url}" style="background-color: #2563eb; color: #ffffff; '
+                "text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: 600; "
+                'font-size: 15px; display: inline-block;">Reset Password</a>'
+                "</div>"
+                '<p style="color: #64748b; font-size: 13px; line-height: 1.5; '
+                'margin-bottom: 24px;">'
+                "If the button above does not work, copy and paste this link into your browser:<br>"
+                f'<a href="{reset_url}" style="color: #2563eb; word-break: break-all;">'
+                f"{reset_url}</a>"
+                "</p>"
+                '<div style="border-top: 1px solid #e2e8f0; padding-top: 20px; '
+                'margin-top: 28px;">'
+                '<p style="color: #dc2626; font-size: 13px; font-weight: 600; '
+                'margin-bottom: 6px;">'
+                "⏱ This link expires in 15 minutes.</p>"
+                '<p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 0;">'
+                "If you did not request this password reset, please ignore this email. "
+                "Your password will remain unchanged and your account is secure."
+                "</p>"
+                "</div>"
+                "</div></body></html>"
+            )
+
+            send_transactional_email(
+                to_email=user.email,
+                subject="Reset your Mage Books password",
+                html_content=html_content,
+                to_name=user.get_full_name() or user.email,
+            )
 
         return Response(
             {
                 "detail": (
                     "If an active account exists with this email, "
                     "reset instructions have been dispatched."
+                )
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """Confirms password reset, updates credentials, and revokes active sessions."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request: Request) -> Response:
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = serializer.validated_data["user"]
+        new_password = serializer.validated_data["new_password"]
+
+        user.set_password(new_password)
+        user.save()
+
+        # Session Revocation: Invalidate all existing SimpleJWT refresh tokens
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import (
+                BlacklistedToken,
+                OutstandingToken,
+            )
+
+            for token in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=token)
+        except Exception as exc:
+            logger.warning(
+                "[PasswordResetConfirmView] Failed to blacklist tokens for user %s: %s",
+                user.id,
+                exc,
+            )
+
+        # Post-reset confirmation alert email
+        security_alert_html = (
+            "<!DOCTYPE html>"
+            "<html><head><meta charset='utf-8'></head>"
+            "<body style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', "
+            'Roboto, sans-serif; background-color: #f4f7fe; padding: 32px 16px;">'
+            '<div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; '
+            'border: 1px solid #c3c6d7; border-radius: 12px; padding: 40px;">'
+            '<h2 style="color: #2563eb; margin: 0 0 16px;">Mage Books Security Alert</h2>'
+            f'<p style="color: #141b2b; font-size: 15px; line-height: 1.6;">'
+            f"The password for your Mage Books account (<strong>{user.email}</strong>) "
+            "was successfully changed."
+            "</p>"
+            '<p style="color: #64748b; font-size: 13px; line-height: 1.5;">'
+            "All previous active sessions have been signed out. "
+            "If you made this change, you can safely disregard this email."
+            "</p>"
+            '<div style="background-color: #fef2f2; border: 1px solid #fecaca; '
+            'border-radius: 8px; padding: 12px; margin-top: 20px;">'
+            '<p style="color: #dc2626; font-size: 13px; font-weight: 600; margin: 0;">'
+            "Did not perform this action? Contact security immediately at support@magebooks.com."
+            "</p>"
+            "</div></div></body></html>"
+        )
+        send_transactional_email(
+            to_email=user.email,
+            subject="Mage Books — Password Successfully Changed",
+            html_content=security_alert_html,
+            to_name=user.get_full_name() or user.email,
+        )
+
+        return Response(
+            {
+                "detail": (
+                    "Password has been reset successfully. "
+                    "You may now log in with your new password."
                 )
             },
             status=status.HTTP_200_OK,
