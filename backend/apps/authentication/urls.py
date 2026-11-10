@@ -7,6 +7,7 @@ from apps.authentication.views import (
     CurrentUserView,
     LoginView,
     LogoutView,
+    PasswordResetConfirmView,
     PasswordResetRequestView,
     RefreshTokenView,
     RegisterView,
@@ -25,4 +26,9 @@ urlpatterns = [
     path("me/", CurrentUserView.as_view(), name="me"),
     path("verify-password/", VerifyPasswordView.as_view(), name="verify-password"),
     path("password-reset/", PasswordResetRequestView.as_view(), name="password-reset"),
+    path(
+        "password-reset/confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="password-reset-confirm",
+    ),
 ]
