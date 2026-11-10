@@ -24,6 +24,10 @@ from apps.authentication.serializers import (
     UserResponseSerializer,
     UserUpdateSerializer,
 )
+from apps.authentication.throttles import (
+    PasswordResetEmailThrottle,
+    PasswordResetIPThrottle,
+)
 from apps.core.services.email import send_transactional_email
 
 logger = logging.getLogger(__name__)
@@ -274,10 +278,14 @@ class PasswordResetRequestView(APIView):
 
     Validates email format, generates secure HMAC token, and dispatches reset instructions.
     Always returns HTTP 200 OK to prevent user/email enumeration attacks.
+    Protected by dual-tier rate limiting:
+    - IP-level: 5 requests per minute.
+    - Email-level: 3 requests per 15 minutes (burst) & 5 requests per 24 hours (daily cap).
     """
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [PasswordResetIPThrottle, PasswordResetEmailThrottle]
 
     def post(self, request: Request) -> Response:
         email = request.data.get("email", "")

@@ -222,6 +222,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "password_reset_ip": "5/min",
+    },
 }
 
 # Simple JWT Configuration
@@ -266,6 +269,22 @@ ACTIVE_PAYMENT_GATEWAY = env("ACTIVE_PAYMENT_GATEWAY", default="mock")
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 IDEMPOTENCY_LOCK_TTL = env.int("IDEMPOTENCY_LOCK_TTL", default=60)
 USE_MOCK_REDIS = env.bool("USE_MOCK_REDIS", default=IS_TESTING or DEBUG)
+
+# Cache Configuration (Redis for Production / Staging, LocMem for Tests & Local Dev)
+if IS_TESTING or DEBUG or USE_MOCK_REDIS:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "magebooks-rate-limit-cache",
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+        }
+    }
 
 # Celery Asynchronous Task Queue
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=REDIS_URL)

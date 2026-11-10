@@ -8,12 +8,16 @@ Covers:
 5. Tampered, expired, or corrupted token rejection.
 6. Password mismatch and length validation.
 7. SimpleJWT session revocation (all outstanding refresh tokens blacklisted).
+8. Rate limiting (IP throttle 5/min, Email burst 3/15min, Email daily cap 5/24hr).
+9. Anti-enumeration integrity and PII hashing in cache keys.
 """
 
+import hashlib
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 from django.utils.encoding import force_bytes
@@ -30,6 +34,7 @@ class PasswordResetTests(TestCase):
     """End-to-end integration tests for password reset endpoints."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.user = CustomUser.objects.create_user(
             email="merchant@example.com",
@@ -39,6 +44,10 @@ class PasswordResetTests(TestCase):
         )
         self.request_url = reverse("authentication:password-reset")
         self.confirm_url = reverse("authentication:password-reset-confirm")
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
 
     @patch("apps.authentication.views.send_transactional_email")
     def test_password_reset_request_valid_email(self, mock_send_email):
@@ -248,3 +257,209 @@ class PasswordResetTests(TestCase):
         # Verify all tokens for this user are now in BlacklistedToken
         blacklisted = BlacklistedToken.objects.filter(token__user=self.user)
         self.assertEqual(blacklisted.count(), outstanding.count())
+
+
+class PasswordResetThrottleTests(TestCase):
+    """Rigorous tests for IP-level and Email-level rate limiting on password reset."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.url = reverse("authentication:password-reset")
+        self.user = CustomUser.objects.create_user(
+            email="throttle_target@example.com",
+            password="OriginalPassword123!",
+        )
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    @patch("apps.authentication.views.send_transactional_email")
+    def test_ip_rate_throttle_blocks_sixth_request(self, mock_send_email):
+        """IP throttle allows 5 requests per minute from a single IP, then blocks with HTTP 429."""
+        mock_send_email.return_value = True
+        client_ip = "192.0.2.1"
+
+        # Make 5 requests with distinct emails from the SAME IP
+        for i in range(5):
+            res = self.client.post(
+                self.url,
+                {"email": f"user_{i}@example.com"},
+                format="json",
+                REMOTE_ADDR=client_ip,
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 6th request from same IP is throttled
+        res_6 = self.client.post(
+            self.url,
+            {"email": "user_sixth@example.com"},
+            format="json",
+            REMOTE_ADDR=client_ip,
+        )
+        self.assertEqual(res_6.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("Retry-After", res_6.headers)
+
+        # A request from a DIFFERENT IP still succeeds
+        res_diff_ip = self.client.post(
+            self.url,
+            {"email": "user_sixth@example.com"},
+            format="json",
+            REMOTE_ADDR="192.0.2.99",
+        )
+        self.assertEqual(res_diff_ip.status_code, status.HTTP_200_OK)
+
+    @patch("apps.authentication.views.send_transactional_email")
+    def test_email_burst_throttle_blocks_fourth_request(self, mock_send_email):
+        """Email throttle permits max 3 requests per 15 minutes, then returns HTTP 429."""
+        mock_send_email.return_value = True
+        target_email = "burst_user@example.com"
+
+        # Send from 3 different IPs so IP rate throttle (5/min) does not interfere
+        for i in range(3):
+            res = self.client.post(
+                self.url,
+                {"email": target_email},
+                format="json",
+                REMOTE_ADDR=f"10.0.0.{i + 1}",
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # 4th request within 15 minutes for same email must be blocked
+        res_4 = self.client.post(
+            self.url,
+            {"email": target_email},
+            format="json",
+            REMOTE_ADDR="10.0.0.4",
+        )
+        self.assertEqual(res_4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("Retry-After", res_4.headers)
+        retry_after = int(res_4.headers["Retry-After"])
+        self.assertGreater(retry_after, 0)
+        self.assertLessEqual(retry_after, 900)
+
+        # A DIFFERENT email from the same IP (or another IP) is NOT blocked
+        res_other = self.client.post(
+            self.url,
+            {"email": "different_target@example.com"},
+            format="json",
+            REMOTE_ADDR="10.0.0.5",
+        )
+        self.assertEqual(res_other.status_code, status.HTTP_200_OK)
+
+    @patch("apps.authentication.throttles.time.time")
+    @patch("apps.authentication.views.send_transactional_email")
+    def test_email_daily_cap_blocks_sixth_request_over_24h(self, mock_send_email, mock_time):
+        """Email throttle allows max 5 requests per 24 hours, even if burst window resets."""
+        mock_send_email.return_value = True
+        target_email = "daily_user@example.com"
+        t0 = 1700000000.0
+
+        # Burst 1: 3 requests at t0
+        mock_time.return_value = t0
+        for i in range(3):
+            res = self.client.post(
+                self.url,
+                {"email": target_email},
+                format="json",
+                REMOTE_ADDR=f"10.1.0.{i + 1}",
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Advance time by 950 seconds (> 15-minute burst window: 900s)
+        # Daily count is currently 3/5
+        t1 = t0 + 950.0
+        mock_time.return_value = t1
+
+        # 4th request succeeds (burst window refreshed)
+        res_4 = self.client.post(
+            self.url,
+            {"email": target_email},
+            format="json",
+            REMOTE_ADDR="10.1.0.4",
+        )
+        self.assertEqual(res_4.status_code, status.HTTP_200_OK)
+
+        # Advance time by another 950 seconds
+        # Daily count is currently 4/5
+        t2 = t1 + 950.0
+        mock_time.return_value = t2
+
+        # 5th request succeeds (daily cap 5 reached)
+        res_5 = self.client.post(
+            self.url,
+            {"email": target_email},
+            format="json",
+            REMOTE_ADDR="10.1.0.5",
+        )
+        self.assertEqual(res_5.status_code, status.HTTP_200_OK)
+
+        # 6th request within 24 hours (t2 is only 1900s since t0) must be BLOCKED by daily cap
+        t3 = t2 + 10.0
+        mock_time.return_value = t3
+        res_6 = self.client.post(
+            self.url,
+            {"email": target_email},
+            format="json",
+            REMOTE_ADDR="10.1.0.6",
+        )
+        self.assertEqual(res_6.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("Retry-After", res_6.headers)
+        retry_after = int(res_6.headers["Retry-After"])
+        expected_wait = int(86400 - (t3 - t0))
+        self.assertEqual(retry_after, expected_wait)
+
+    def test_anti_enumeration_nonexistent_email_throttled_identically(self):
+        """Non-existent emails are throttled identically to prevent account enumeration."""
+        ghost_email = "ghost_never_registered@example.com"
+
+        for i in range(3):
+            res = self.client.post(
+                self.url,
+                {"email": ghost_email},
+                format="json",
+                REMOTE_ADDR=f"10.2.0.{i + 1}",
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        res_4 = self.client.post(
+            self.url,
+            {"email": ghost_email},
+            format="json",
+            REMOTE_ADDR="10.2.0.4",
+        )
+        self.assertEqual(res_4.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_pii_protection_no_plaintext_email_in_cache(self):
+        """Email addresses are hashed with SHA-256 before being stored in cache keys."""
+        secret_email = "sensitive_owner@privatecorp.gh"
+
+        self.client.post(
+            self.url,
+            {"email": secret_email},
+            format="json",
+            REMOTE_ADDR="10.3.0.1",
+        )
+
+        expected_hash = hashlib.sha256(secret_email.encode("utf-8")).hexdigest()[:16]
+        burst_key = f"throttle:reset:burst:{expected_hash}"
+        daily_key = f"throttle:reset:daily:{expected_hash}"
+
+        self.assertIsNotNone(cache.get(burst_key))
+        self.assertIsNotNone(cache.get(daily_key))
+
+        # Ensure plaintext email is not part of any key in the cache
+        raw_key = f"throttle:reset:burst:{secret_email}"
+        self.assertIsNone(cache.get(raw_key))
+
+    def test_malformed_email_does_not_consume_rate_limit(self):
+        """Malformed emails return HTTP 400 and bypass rate limit consumption."""
+        for _ in range(5):
+            res = self.client.post(
+                self.url,
+                {"email": "not-a-valid-email"},
+                format="json",
+                REMOTE_ADDR="10.4.0.1",
+            )
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
